@@ -22,6 +22,7 @@ import threading
 import base64
 import tempfile
 import os
+import webbrowser
 
 from alfacrm_api import AlfaCRMApi
 from database import Database
@@ -157,7 +158,6 @@ class MainApp(App):
             threading.Thread(target=self.test_login, daemon=True).start()
             
     def test_login(self):
-        """Асинхронный вход с запуском отдельных потоков для каждого профиля"""
         threads = []
         results = {}
         def login_api(api):
@@ -168,24 +168,31 @@ class MainApp(App):
                 print(f"Ошибка входа для {api.crm_type}: {e}")
                 results[api.crm_type] = False
         for api in self.api_instances:
-            # Пропускаем профили без логина
+            crm = api.crm_type
             if not api.config.get('username'):
-                results[api.crm_type] = False
+                results[crm] = False
                 continue
-            t = threading.Thread(target=login_api, args=(api,))
-            t.start()
-            threads.append(t)
+            try:
+                print(f"Попытка входа для {crm}...")
+                success = api.login()
+                results[crm] = success
+                if success:
+                    print(f"{crm}: Успешно")
+                else:
+                    print(f"{crm}: Ошибка")
+            except Exception as e:
+                print(f"Ошибка входа для {crm}: {e}")
+                results[crm] = False
         for t in threads:
             t.join()
-        # Обработка результатов
         if all(results.values()):
             Clock.schedule_once(lambda dt: self.update_status('Подключено', '#44ff44'))
+            # Загружаем уроки в фоне
             threading.Thread(target=self.async_load_lessons, daemon=True).start()
         elif any(results.values()):
             Clock.schedule_once(lambda dt: self.update_status('Частичное подключение', '#ffaa44'))
         else:
             Clock.schedule_once(lambda dt: self.update_status('Нет подключения', '#ff4444'))
-        # Выводим детали
         for crm, status in results.items():
             print(f"{crm}: {'Успешно' if status else 'Ошибка'}")
 
@@ -216,6 +223,7 @@ class MainApp(App):
             self.scheduler.stop()
         for api in self.api_instances:
             api.close()
+
 
 # ============================== КАЛЕНДАРЬ ==============================
 class CalendarWidget(BoxLayout):
@@ -304,12 +312,9 @@ class CalendarWidget(BoxLayout):
         Clock.schedule_once(lambda dt: self.finish_build(), 0)
         
     def finish_build(self):
-        # Убираем индикатор
         self.remove_widget(self.loading_label)
-        # Создаём ScrollView
         self.scroll = ScrollView(do_scroll_x=True, do_scroll_y=True,
                                 bar_width=dp(8), bar_color=(0.3,0.3,0.5,0.8))
-        # Создаём GridLayout
         self.calendar_grid = GridLayout(cols=8, spacing=1, size_hint=(1, 1))
         self.build_table()
         self.scroll.add_widget(self.calendar_grid)
@@ -449,9 +454,9 @@ class CalendarWidget(BoxLayout):
                             lessons_in_hour.append(l)
                 
                 if lessons_in_hour:
-                    # Создаём вертикальный контейнер для нескольких уроков
                     if len(lessons_in_hour) == 1:
                         widget = self.create_lesson_widget(lessons_in_hour[0], curr_h, col_w)
+                        widget.lesson_id = lessons_in_hour[0].get('id', '')
                         cell.add_widget(widget)
                     else:
                         multi_box = BoxLayout(orientation='vertical', size_hint=(1, 1), spacing=dp(1))
@@ -459,6 +464,7 @@ class CalendarWidget(BoxLayout):
                             single_widget = self.create_lesson_widget(lesson, curr_h/len(lessons_in_hour), col_w)
                             single_widget.size_hint_y = None
                             single_widget.height = curr_h/len(lessons_in_hour) - dp(1)
+                            single_widget.lesson_id = lesson.get('id', '')
                             multi_box.add_widget(single_widget)
                         cell.add_widget(multi_box)
                 
@@ -466,42 +472,43 @@ class CalendarWidget(BoxLayout):
                     
     def create_lesson_widget(self, lesson, height, width):
         box = BoxLayout(orientation='vertical',
-                        size_hint=(None, None),
-                        size=(width-dp(4), height-dp(2)),
-                        padding=[dp(2), dp(2), dp(2), dp(2)])
+                    size_hint=(None, None),
+                    size=(width-dp(4), height-dp(2)),
+                    padding=[dp(2), dp(2), dp(2), dp(2)])
         
         status = lesson.get('status', 'scheduled')
         ltype = lesson.get('type', 'unknown')
         is_occupied = lesson.get('is_occupied', False)
         
-        # Определяем цвет фона и текста
         if status == 'cancelled':
-            bg = (0.2, 0.2, 0.2, 0.95)       # угольный
+            bg = (0.2, 0.2, 0.2, 0.95)
             border = (0.4, 0.4, 0.4, 1)
             text_color = (0.8, 0.8, 0.8, 1)
         elif status == 'completed':
-            bg = (0.1, 0.4, 0.1, 0.9)        # зелёный
+            bg = (0.1, 0.4, 0.1, 0.9)
             border = (0.3, 0.6, 0.3, 1)
             text_color = (1, 1, 1, 1)
         elif ltype == 'trial':
-            bg = (0.75, 0.75, 0.75, 0.9)     # светло-серый
+            bg = (0.75, 0.75, 0.75, 0.9)
             border = (0.7, 0.7, 0.7, 1)
             text_color = (0.2, 0.2, 0.2, 1)
         elif ltype in ['individual', 'group', 'tech_support']:
-            bg = (0.29, 0.56, 0.85, 0.9)     # голубой (4A90D9)
+            bg = (0.29, 0.56, 0.85, 0.9)
             border = (0.4, 0.7, 0.9, 1)
             text_color = (1, 1, 1, 1)
         else:
-            bg = (0.13, 0.59, 0.95, 0.9)     # стандартный синий (2196F3)
+            bg = (0.13, 0.59, 0.95, 0.9)
             border = (0.2, 0.7, 1, 1)
             text_color = (1, 1, 1, 1)
         
-        # Нижняя граница по CRM
         crm_type = lesson.get('crm_type', 'rts')
         if crm_type == 'wellkid':
             bottom_color = (1.0, 0.6, 0.0, 1)
         else:
             bottom_color = (0.0, 0.2, 0.6, 1)
+        
+        box.lesson_data = lesson
+        box.lesson_id = lesson.get('id', '')
         
         with box.canvas.before:
             Color(*bg)
@@ -510,7 +517,6 @@ class CalendarWidget(BoxLayout):
             box.bottom_border = Rectangle(size=(box.width, dp(4)), pos=(box.x, box.y))
         box.bind(size=self.update_rect, pos=self.update_rect)
         
-        # Время
         time_display = lesson.get('time', '')
         time_lbl = Label(text=time_display, color=(1,1,1,1),
                         font_size=dp(9), bold=True,
@@ -518,7 +524,6 @@ class CalendarWidget(BoxLayout):
                         text_size=(width-dp(10), None), halign='left')
         box.add_widget(time_lbl)
         
-        # Имя клиента или список учеников (для группы)
         lesson_type = lesson.get('type', '')
         if lesson_type == 'group':
             students = lesson.get('students', [])
@@ -537,7 +542,6 @@ class CalendarWidget(BoxLayout):
                         text_size=(width-dp(10), None), halign='left', shorten=True)
         box.add_widget(client_lbl)
         
-        # Статус-символ
         status_symbols = {'scheduled': 'P', 'completed': 'C', 'cancelled': 'X'}
         sym = status_symbols.get(status, '')
         if sym:
@@ -547,112 +551,279 @@ class CalendarWidget(BoxLayout):
             box.add_widget(status_lbl)
         
         box.lesson = lesson
-        box.bind(on_touch_down=self._on_lesson_click)
+        box.bind(on_touch_down=self._on_lesson_touch)
+
         return box
         
-    def _on_lesson_click(self, instance, touch):
+    def _on_lesson_touch(self, instance, touch):
+        # Проверяем, что касание было в пределах виджета
         if instance.collide_point(*touch.pos):
-            if hasattr(instance, 'lesson'):
-                self.show_lesson_details(instance.lesson)
-            return True
+            if hasattr(instance, 'lesson_data'):
+                self.show_lesson_details(instance.lesson_data)
+                return True
         return False
         
     def show_lesson_details(self, lesson):
         content = BoxLayout(orientation='vertical', padding=dp(15), spacing=dp(10))
-        title = Label(text=f"Урок {lesson.get('time', '')}",
+        
+        # Заголовок
+        title = Label(text=f"==> Урок {lesson.get('time', '')} <==",
                     color=get_color_from_hex('#ffffff'), font_size=dp(20),
                     bold=True, size_hint_y=None, height=dp(45))
         content.add_widget(title)
         
+        # Разделитель
         sep = BoxLayout(size_hint_y=None, height=dp(2))
         with sep.canvas.before:
-            Color(0.2,0.2,0.3,1)
+            Color(0.2, 0.2, 0.3, 1)
             sep.rect = Rectangle(size=sep.size, pos=sep.pos)
         sep.bind(size=self.update_rect, pos=self.update_rect)
         content.add_widget(sep)
         
-        status_names = {'scheduled':'Запланирован','cancelled':'Отменён','completed':'Проведён'}
-        type_names = {'individual':'Индивидуальный','group':'Групповой',
-                    'trial':'Пробный','tech_support':'Техподдержка'}
+        # Словари для статусов и типов
+        status_names = {
+            'scheduled': '[P] Запланирован',
+            'cancelled': '[X] Отменён',
+            'completed': '[V] Проведён'
+        }
+        type_names = {
+            'individual': '[I] Индивидуальный',
+            'group': '[G] Групповой',
+            'trial': '[T] Пробный',
+            'tech_support': '[S] Техподдержка'
+        }
         
-        students = lesson.get('students', [])
-        if students:
-            info_text = f"""
-    Статус: {status_names.get(lesson.get('status', ''), 'Неизвестен')}
-    Тип: {type_names.get(lesson.get('type', ''), 'Неизвестен')}
-    Дата: {lesson.get('date', 'Не указана')}
-    Время: {lesson.get('time', 'Не указано')}
-    Комментарий: {lesson.get('comment', 'Нет')}
-    Преподаватель: {lesson.get('teacher', 'Не указан')}
-    Кабинет: {lesson.get('room', 'Не указан')}
-    CRM: {lesson.get('crm_type', 'неизвестно')}
-
-    Ученики:
-    """
-            for s in students:
-                status_icon = ""
-                if s.get('is_cancelled'):
-                    status_icon = "✕ "
-                elif s.get('is_paused'):
-                    status_icon = "⏸ "
-                info_text += f"  {status_icon}{s.get('name')}"
-                if s.get('pause_info'):
-                    info_text += f" (пауза {s.get('pause_info')})"
-                info_text += "\n"
-        else:
-            info_text = f"""
-    Клиент(ы): {lesson.get('client', 'Не указан')}
-    Статус: {status_names.get(lesson.get('status', ''), 'Неизвестен')}
-    Тип: {type_names.get(lesson.get('type', ''), 'Неизвестен')}
-    Дата: {lesson.get('date', 'Не указана')}
-    Время: {lesson.get('time', 'Не указано')}
-    Комментарий: {lesson.get('comment', 'Нет')}
-    Преподаватель: {lesson.get('teacher', 'Не указан')}
-    Кабинет: {lesson.get('room', 'Не указан')}
-    CRM: {lesson.get('crm_type', 'неизвестно')}
-    """
+        # Контейнер с прокруткой для информации
+        info_scroll = ScrollView(size_hint_y=None, height=dp(300), bar_width=dp(6))
+        info_container = BoxLayout(orientation='vertical', size_hint_y=None, spacing=dp(8))
+        info_container.bind(minimum_height=info_container.setter('height'))
+        
+        # --- Основная информация об уроке ---
+        info_lines = [
+            f"CRM: {lesson.get('crm_type', 'неизвестно').capitalize()}",
+            f"Статус: {status_names.get(lesson.get('status', ''), 'Неизвестен')}",
+            f"Тип: {type_names.get(lesson.get('type', ''), 'Неизвестен')}",
+            f"Дата: {lesson.get('date', 'Не указана')}",
+            f"Время: {lesson.get('time', 'Не указано')}",
+            f"Преподаватель: {lesson.get('teacher', 'Не указан')}",
+            f"Кабинет: {lesson.get('room', 'Не указан')}",
+        ]
+        
+        # Добавляем комментарий только если он есть
+        comment = lesson.get('comment', '').strip()
+        if comment:
+            info_lines.append(f"Комментарий: {comment}")
+        
+        info_text = "\n".join(info_lines)
         
         info_lbl = Label(text=info_text, color=get_color_from_hex('#ccccdd'),
-                        font_size=dp(14), size_hint_y=None, height=dp(240),
-                        halign='left', valign='top', text_size=(dp(400), None))
-        content.add_widget(info_lbl)
+                        font_size=dp(13), size_hint_y=None, height=dp(len(info_lines) * 25 + 10),
+                        halign='left', valign='top', text_size=(dp(380), None))
+        info_container.add_widget(info_lbl)
         
-        # Кнопки
+        # --- Разделитель перед списком учеников ---
+        sep2 = BoxLayout(size_hint_y=None, height=dp(2))
+        with sep2.canvas.before:
+            Color(0.2, 0.2, 0.3, 1)
+            sep2.rect = Rectangle(size=sep2.size, pos=sep2.pos)
+        sep2.bind(size=self.update_rect, pos=self.update_rect)
+        info_container.add_widget(sep2)
+        
+        # --- Список учеников ---
+        students = lesson.get('students', [])
+        clients_text = lesson.get('client', '')
+        
+        if students:
+            # Есть список учеников
+            students_label = Label(text="Ученики:", color=get_color_from_hex('#66ccff'),
+                                font_size=dp(14), bold=True, size_hint_y=None, height=dp(25),
+                                halign='left')
+            info_container.add_widget(students_label)
+            
+            for s in students:
+                name_text = s.get('name', 'Без имени')
+                is_cancelled = s.get('is_cancelled', False)
+                is_paused = s.get('is_paused', False)
+                pause_info = s.get('pause_info', '')
+                extra_info = s.get('extra_info', '')
+                
+                # Создаем строку ученика
+                student_box = BoxLayout(orientation='horizontal', 
+                                    size_hint_y=None, height=dp(30), 
+                                    spacing=dp(10), padding=[dp(10), 0, dp(10), 0])
+                
+                # Фон для ученика (чередование или выделение паузы)
+                if is_cancelled or is_paused:
+                    bg_color = (0.25, 0.1, 0.1, 0.5)  # Красноватый фон
+                else:
+                    bg_color = (0.1, 0.1, 0.15, 0.5)
+                
+                with student_box.canvas.before:
+                    Color(*bg_color)
+                    student_box.rect = RoundedRectangle(size=student_box.size, 
+                                                    pos=student_box.pos, 
+                                                    radius=[(dp(4), dp(4))])
+                student_box.bind(size=self.update_rect, pos=self.update_rect)
+                
+                # Имя ученика
+                if is_cancelled:
+                    # Отменен - красный зачеркнутый
+                    name_lbl = Label(text=f"[color=ff6666][s]{name_text}[/s][/color] [X]", 
+                                markup=True,
+                                font_size=dp(13), size_hint_x=0.6,
+                                halign='left', valign='middle')
+                elif is_paused:
+                    # На паузе - оранжевый зачеркнутый
+                    name_lbl = Label(text=f"[color=ff9900][s]{name_text}[/s][/color] [P]", 
+                                markup=True,
+                                font_size=dp(13), size_hint_x=0.6,
+                                halign='left', valign='middle')
+                else:
+                    # Активный - белый
+                    name_lbl = Label(text=f"[color=ffffff]{name_text}[/color] [V]", 
+                                markup=True,
+                                font_size=dp(13), size_hint_x=0.6,
+                                halign='left', valign='middle')
+                
+                student_box.add_widget(name_lbl)
+                
+                # Статус и детали
+                status_box = BoxLayout(orientation='vertical', size_hint_x=0.4, spacing=dp(2))
+                
+                if is_cancelled:
+                    status_lbl = Label(text="ОТМЕНЕН", color=(0.8, 0.2, 0.2, 1),
+                                    font_size=dp(11), size_hint_y=None, height=dp(15),
+                                    halign='right', valign='middle', bold=True)
+                    status_box.add_widget(status_lbl)
+                elif is_paused:
+                    status_lbl = Label(text="ПАУЗА", color=(0.9, 0.6, 0.0, 1),
+                                    font_size=dp(11), size_hint_y=None, height=dp(15),
+                                    halign='right', valign='middle', bold=True)
+                    status_box.add_widget(status_lbl)
+                else:
+                    status_lbl = Label(text="Активен", color=(0.2, 0.8, 0.2, 1),
+                                    font_size=dp(11), size_hint_y=None, height=dp(15),
+                                    halign='right', valign='middle')
+                    status_box.add_widget(status_lbl)
+                
+                # Детали (пауза, остаток)
+                details = []
+                if pause_info:
+                    details.append(f"пауза {pause_info}")
+                if extra_info:
+                    details.append(extra_info)
+                
+                if details:
+                    details_lbl = Label(text=", ".join(details), 
+                                    color=get_color_from_hex('#888899'),
+                                    font_size=dp(10), size_hint_y=None, height=dp(15),
+                                    halign='right', valign='middle')
+                    status_box.add_widget(details_lbl)
+                
+                student_box.add_widget(status_box)
+                info_container.add_widget(student_box)
+                
+        elif clients_text and clients_text != 'Не указан':
+            # Нет списка учеников, но есть текст с клиентами
+            clients_label = Label(text="Клиент(ы):", color=get_color_from_hex('#66ccff'),
+                                font_size=dp(14), bold=True, size_hint_y=None, height=dp(25),
+                                halign='left')
+            info_container.add_widget(clients_label)
+            
+            # Разбиваем клиентов
+            raw_clients = [c.strip() for c in clients_text.split(',') if c.strip()]
+            
+            for raw_client in raw_clients:
+                # Проверяем на паузу
+                is_paused = '<strike' in raw_client or 'text-muted' in raw_client
+                # Очищаем от HTML
+                clean_name = raw_client.replace('<strike class="text-muted">', '') \
+                                    .replace('</strike>', '').strip()
+                
+                client_box = BoxLayout(orientation='horizontal', 
+                                    size_hint_y=None, height=dp(30), 
+                                    spacing=dp(10), padding=[dp(10), 0, dp(10), 0])
+                
+                if is_paused:
+                    bg_color = (0.25, 0.15, 0.05, 0.5)  # Желтоватый фон
+                    with client_box.canvas.before:
+                        Color(*bg_color)
+                        client_box.rect = RoundedRectangle(size=client_box.size, 
+                                                        pos=client_box.pos, 
+                                                        radius=[(dp(4), dp(4))])
+                    client_box.bind(size=self.update_rect, pos=self.update_rect)
+                    
+                    name_lbl = Label(text=f"[color=ff9900][s]{clean_name}[/s][/color] [P]", 
+                                markup=True,
+                                font_size=dp(13), size_hint_x=1,
+                                halign='left', valign='middle')
+                else:
+                    name_lbl = Label(text=f"[color=ffffff]{clean_name}[/color] [V]", 
+                                markup=True,
+                                font_size=dp(13), size_hint_x=1,
+                                halign='left', valign='middle')
+                
+                client_box.add_widget(name_lbl)
+                info_container.add_widget(client_box)
+        else:
+            # Нет информации о клиентах
+            no_clients = Label(text="Клиент(ы): Не указан", 
+                            color=get_color_from_hex('#888899'),
+                            font_size=dp(13), size_hint_y=None, height=dp(25),
+                            halign='left')
+            info_container.add_widget(no_clients)
+        
+        info_scroll.add_widget(info_container)
+        content.add_widget(info_scroll)
+        
+        # --- Кнопки ---
         btn_box = BoxLayout(size_hint_y=None, height=dp(50), spacing=dp(10))
+        
+        # Формируем ссылку
         customer_id = lesson.get('customer_id')
         site_url = lesson.get('site_url', '')
-        if customer_id and site_url:
+        lesson_id = lesson.get('id')
+        
+        if students and len(students) == 1 and customer_id and site_url:
+            lesson_url = f"{site_url}/teacher/1/customer/view?id={customer_id}"
+        elif lesson_id and site_url:
             lesson_url = f"{site_url}/teacher/1/customer/view?id={customer_id}"
         else:
-            lesson_id = lesson.get('id')
-            if lesson_id and site_url:
-                lesson_url = f"{site_url}/teacher/1/lesson/view?id={lesson_id}"
-            else:
-                lesson_url = lesson.get('link', '')
+            lesson_url = lesson.get('link', '')
+        
         if lesson_url:
             link_btn = Button(text="Открыть в браузере",
-                            background_color=(0.15,0.4,0.8,1), color=(1,1,1,1),
+                            background_color=(0.15, 0.4, 0.8, 1), 
+                            color=(1, 1, 1, 1),
                             font_size=dp(13), bold=True)
             link_btn.bind(on_press=lambda x: self.open_link(lesson_url))
             btn_box.add_widget(link_btn)
+        
         close_btn = Button(text="Закрыть",
-                        background_color=(0.2,0.2,0.3,1), color=(1,1,1,1),
+                        background_color=(0.2, 0.2, 0.3, 1), 
+                        color=(1, 1, 1, 1),
                         font_size=dp(13), bold=True)
         close_btn.bind(on_press=self.dismiss_popup)
         btn_box.add_widget(close_btn)
         content.add_widget(btn_box)
         
-        self.popup = Popup(title='', content=content, size_hint=(0.75, 0.65),
-                        background_color=(0.05,0.05,0.08,1))
+        # --- Попап ---
+        self.popup = Popup(title='', content=content, size_hint=(0.8, 0.7),
+                        background_color=(0.05, 0.05, 0.08, 1))
         close_btn.bind(on_press=self.popup.dismiss)
-        self.popup.open()
+        self.popup.open()    
+
+    def _update_strike(self, instance, value):
+        """Обновляет позицию линии зачеркивания при изменении размера"""
+        if hasattr(instance, 'strike'):
+            instance.strike.pos = (instance.x, instance.y + instance.height/2)
+            instance.strike.size = (instance.texture_size[0] if hasattr(instance, 'texture_size') else instance.width, dp(1))
         
     def dismiss_popup(self, instance):
         if hasattr(self, 'popup'):
             self.popup.dismiss()
         
     def open_link(self, url):
-        import webbrowser
         webbrowser.open(url)
         
     def zoom(self, delta):
@@ -713,7 +884,6 @@ class SettingsTab(BoxLayout):
         content = BoxLayout(orientation='vertical', size_hint_y=None, spacing=dp(15))
         content.bind(minimum_height=content.setter('height'))
         
-        # Группа: Подключение (профили)
         group1 = BoxLayout(orientation='vertical', size_hint_y=None, spacing=dp(10))
         group1_label = Label(text="Профили CRM", color=get_color_from_hex('#66ccff'),
                              font_size=dp(16), bold=True, size_hint_y=None, height=dp(30))
@@ -729,7 +899,6 @@ class SettingsTab(BoxLayout):
                 prof_box.rect = RoundedRectangle(size=prof_box.size, pos=prof_box.pos, radius=[(dp(6), dp(6))])
             prof_box.bind(size=self.update_rect, pos=self.update_rect)
             
-            # Заголовок профиля
             header_box = BoxLayout(size_hint_y=None, height=dp(30))
             crm_label = Label(text=profile.get('crm_type', 'rts').upper(), color=get_color_from_hex('#88ccff'),
                               font_size=dp(13), bold=True, size_hint_x=0.3)
@@ -737,7 +906,6 @@ class SettingsTab(BoxLayout):
             header_box.add_widget(Label(text="", size_hint_x=0.7))
             prof_box.add_widget(header_box)
             
-            # Поля
             fields = [
                 ('URL:', 'site_url'),
                 ('Логин:', 'username'),
@@ -769,7 +937,6 @@ class SettingsTab(BoxLayout):
             self.profile_widgets.append(prof_box)
             content.add_widget(prof_box)
         
-        # Кнопка добавления профиля
         add_btn = Button(text="+ Добавить профиль", size_hint_y=None, height=dp(40),
                          background_color=(0.15,0.3,0.5,1), color=(1,1,1,1),
                          font_size=dp(13), bold=True)
@@ -783,7 +950,6 @@ class SettingsTab(BoxLayout):
         sep.bind(size=self.update_rect, pos=self.update_rect)
         content.add_widget(sep)
         
-        # Группа: Расписание
         group2 = BoxLayout(orientation='vertical', size_hint_y=None, height=dp(120), spacing=dp(10))
         group2_label = Label(text="Расписание и уведомления", color=get_color_from_hex('#66ccff'),
                              font_size=dp(16), bold=True, size_hint_y=None, height=dp(30))

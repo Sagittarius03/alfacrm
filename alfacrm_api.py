@@ -49,24 +49,21 @@ class AlfaCRMApi:
         self.driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
         
     def login(self):
-        """Асинхронный вход с блокировкой и восстановлением сессии"""
         with self.lock:
             if self.is_logged_in:
                 return True
                 
             try:
-                # Пытаемся восстановить сессию
                 saved_cookies = self.db.get_session_cookies(self.crm_type) if hasattr(self, 'db') else []
                 if saved_cookies:
                     print(f"Попытка восстановления сессии для {self.crm_type}...")
                     if not self.driver:
                         self.setup_driver()
                     self.driver.get(self.config['site_url'])
-                    # Фильтруем куки по домену
                     current_domain = self.config['site_url'].replace('https://', '').replace('http://', '').split('/')[0]
                     for cookie in saved_cookies:
                         if cookie.get('domain') and current_domain not in cookie['domain']:
-                            print(f"Пропускаем cookie {cookie.get('name')} с доменом {cookie.get('domain')} (не подходит для {current_domain})")
+                            print(f"Пропускаем cookie {cookie.get('name')} с доменом {cookie.get('domain')}")
                             continue
                         try:
                             clean_cookie = {k: v for k, v in cookie.items() if k in ['name', 'value', 'domain', 'path', 'expiry', 'httpOnly', 'secure']}
@@ -82,9 +79,8 @@ class AlfaCRMApi:
                         print(f"Сессия восстановлена для {self.crm_type}")
                         return True
                     else:
-                        print(f"Сохранённая сессия для {self.crm_type} недействительна, выполняем полный вход")
+                        print(f"Сохранённая сессия для {self.crm_type} недействительна")
                 
-                # Полный вход
                 if not self.driver:
                     self.setup_driver()
                 print(f"Логин на {self.config['site_url']} ({self.crm_type})")
@@ -99,7 +95,6 @@ class AlfaCRMApi:
                 password_field.clear()
                 password_field.send_keys(self.config['password'])
                 
-                # Устанавливаем галочку "Запомнить меня"
                 try:
                     remember_me = self.driver.find_element(By.ID, "loginform-rememberme")
                     if not remember_me.is_selected():
@@ -109,7 +104,7 @@ class AlfaCRMApi:
                 
                 submit_button = self.driver.find_element(By.CSS_SELECTOR, "button[name='login-button']")
                 submit_button.click()
-                time.sleep(5)  # Увеличенное время ожидания
+                time.sleep(2)
                 
                 if self.check_2fa_required():
                     print(f"Требуется код подтверждения для {self.crm_type}")
@@ -128,7 +123,6 @@ class AlfaCRMApi:
                         self.is_logged_in = True
                         print(f"Успешный вход для {self.crm_type}")
                     else:
-                        # Проверяем, не остались ли мы на странице входа
                         try:
                             error = self.driver.find_element(By.CSS_SELECTOR, ".alert-danger")
                             print(f"Ошибка входа: {error.text}")
@@ -147,7 +141,7 @@ class AlfaCRMApi:
             except Exception as e:
                 print(f"Ошибка при входе для {self.crm_type}: {e}")
                 return False
-    
+
     def check_2fa_required(self):
         try:
             selectors = [
@@ -225,6 +219,8 @@ class AlfaCRMApi:
         
     def enter_2fa_code(self, code):
         try:
+            # Находим поле для кода
+            code_field = None
             selectors = [
                 "#login2faform-code",
                 "#loginform-verificationcode",
@@ -232,7 +228,6 @@ class AlfaCRMApi:
                 "[name='Login2FAForm[code]']",
                 "input[name='code']",
             ]
-            code_field = None
             for selector in selectors:
                 try:
                     code_field = WebDriverWait(self.driver, 10).until(
@@ -241,12 +236,16 @@ class AlfaCRMApi:
                     break
                 except:
                     continue
+
             if not code_field:
                 print("Не найдено поле для ввода кода")
                 self.save_page_source("2fa_error.html")
                 return False
+
             code_field.clear()
             code_field.send_keys(code)
+
+            # Находим кнопку отправки
             submit_selectors = [
                 "button[type='submit']",
                 "button[name='login-button']",
@@ -263,31 +262,88 @@ class AlfaCRMApi:
                     break
                 except:
                     continue
+
             if submit_button:
                 submit_button.click()
             else:
                 code_field.submit()
-            time.sleep(3)
-            return self.check_login_success()
+
+            # Ожидаем либо успешного входа, либо появления сообщения об ошибке
+            # Даём больше времени на обработку (20 секунд)
+            time.sleep(2)
+            
+            # Проверяем несколько раз с интервалом
+            for i in range(10):
+                time.sleep(1)
+                if self.check_login_success():
+                    return True
+                # Проверяем, не появилось ли сообщение об ошибке
+                try:
+                    error = self.driver.find_element(By.CSS_SELECTOR, ".alert-danger, .error-message")
+                    if error.is_displayed():
+                        print(f"Ошибка входа после 2FA: {error.text}")
+                        return False
+                except:
+                    pass
+                
+                # Проверяем, не перенаправило ли нас на страницу логина снова
+                current_url = self.driver.current_url
+                if 'login' not in current_url.lower():
+                    return True
+            
+            return False
+
         except Exception as e:
             print(f"Ошибка ввода кода: {e}")
             return False
             
     def check_login_success(self):
         try:
-            selectors = [".navbar-top-links", ".profile-link", "#side-menu", ".teacher-menu", ".user-menu"]
+            # Проверяем URL – если он не содержит 'login', считаем вход успешным
+            current_url = self.driver.current_url
+            if 'login' not in current_url.lower():
+                return True
+            
+            # Проверяем наличие элемента, характерного для авторизованного пользователя
+            # В разных CRM могут быть разные селекторы
+            selectors = [
+                ".navbar-top-links", 
+                ".profile-link", 
+                "#side-menu", 
+                ".teacher-menu", 
+                ".user-menu", 
+                ".logout",
+                ".dropdown.user-menu",
+                ".header-user",
+                ".avatar"
+            ]
             for selector in selectors:
                 try:
-                    self.driver.find_element(By.CSS_SELECTOR, selector)
-                    return True
+                    element = self.driver.find_element(By.CSS_SELECTOR, selector)
+                    if element.is_displayed():
+                        return True
                 except:
                     continue
-            current_url = self.driver.current_url
-            if "dashboard" in current_url or "calendar" in current_url or "teacher" in current_url:
-                return True
+            
+            # Проверяем наличие кнопки выхода
+            try:
+                logout_links = self.driver.find_elements(By.XPATH, "//a[contains(text(), 'Выход') or contains(text(), 'Logout')]")
+                if logout_links and logout_links[0].is_displayed():
+                    return True
+            except:
+                pass
+            
             return False
         except Exception as e:
             print(f"Ошибка проверки входа: {e}")
+            return False
+    
+    def is_error_present(self):
+        try:
+            # Ищем сообщение об ошибке (например, alert-danger)
+            error = self.driver.find_element(By.CSS_SELECTOR, ".alert-danger, .error-message")
+            return error.is_displayed()
+        except:
             return False
             
     def get_lessons_from_api(self, start_date=None, end_date=None):
@@ -388,11 +444,10 @@ class AlfaCRMApi:
             }
             lesson_type = type_map.get(str(data.get('type')), 'unknown')
             
-            # Извлечение учеников
+            # Извлечение учеников с деталями
             customers = data.get('customers', {})
             students = []
             customer_id = None
-            client_names_clean = []  # для чистых имён, если нужен fallback
             
             if isinstance(customers, dict):
                 for cid, name_html in customers.items():
@@ -401,14 +456,17 @@ class AlfaCRMApi:
                     pause_match = re.search(r'\(пауза\s+([^)]+)\)', name_html)
                     is_paused = bool(pause_match)
                     pause_info = pause_match.group(1) if pause_match else None
+                    # Извлекаем остатки (ост., ур.)
+                    extra_match = re.search(r'\(([^)]*(?:ост\.?|уроков?)[^)]*)\)', name_html)
+                    extra_info = extra_match.group(1) if extra_match else ''
                     students.append({
                         'id': cid,
                         'name': clean_name,
                         'is_cancelled': is_cancelled,
                         'is_paused': is_paused,
                         'pause_info': pause_info,
+                        'extra_info': extra_info,
                     })
-                    client_names_clean.append(clean_name)
                 if students:
                     customer_id = students[0]['id']
             elif isinstance(customers, list):
@@ -421,26 +479,20 @@ class AlfaCRMApi:
                         pause_match = re.search(r'\(пауза\s+([^)]+)\)', name_html)
                         is_paused = bool(pause_match)
                         pause_info = pause_match.group(1) if pause_match else None
+                        extra_match = re.search(r'\(([^)]*(?:ост\.?|уроков?|осталось)[^)]*)\)', name_html)
+                        extra_info = extra_match.group(1).strip() if extra_match else ''
                         students.append({
                             'id': cid,
                             'name': clean_name,
                             'is_cancelled': is_cancelled,
                             'is_paused': is_paused,
                             'pause_info': pause_info,
+                            'extra_info': extra_info,
                         })
-                        client_names_clean.append(clean_name)
                 if students:
                     customer_id = students[0]['id']
             
-            # Если не нашли через customers, пробуем через title
-            if not students:
-                title = data.get('title', '')
-                clean_title = re.sub(r'<[^>]+>', '', title).strip()
-                if clean_title:
-                    # Может быть просто имя или группа
-                    students = [{'id': None, 'name': clean_title, 'is_cancelled': False, 'is_paused': False, 'pause_info': None}]
-                    client_names_clean = [clean_title]
-            
+            # Если customer_id не найден, пытаемся из других полей
             if not customer_id:
                 customer_id = data.get('customer_id') or data.get('client_id')
             if not customer_id and data.get('link'):
@@ -448,9 +500,11 @@ class AlfaCRMApi:
                 if match:
                     customer_id = match.group(1)
             
-            # Формируем clean client (для fallback)
-            client_clean = ', '.join(client_names_clean) if client_names_clean else data.get('title', '')
-            client_clean = re.sub(r'<[^>]+>', '', client_clean).strip()
+            client_names = []
+            if isinstance(customers, dict):
+                client_names = list(customers.values())
+            elif isinstance(customers, list):
+                client_names = [c.get('name', '') for c in customers if isinstance(c, dict)]
             
             # Время
             start_time = data.get('start', '')
@@ -470,9 +524,9 @@ class AlfaCRMApi:
                     time_str = start_time[:5] if len(start_time) >= 5 else ''
             
             lesson = {
-                'id': str(data.get('id', '')),
+                'id': str(data.get('id', f"{self.crm_type}_{datetime.now().timestamp()}")),
                 'time': time_str,
-                'client': client_clean,  # теперь чистое имя
+                'client': ', '.join(client_names) if client_names else data.get('title', ''),
                 'subject': data.get('subject', ''),
                 'comment': data.get('note', ''),
                 'status': status,
