@@ -1,0 +1,7 @@
+kivy>=2.3.0
+kivymd>=1.1.1
+requests>=2.32.3
+selenium>=4.28.1
+beautifulsoup4>=4.12.3
+apscheduler>=3.11.0
+plyer>=2.1

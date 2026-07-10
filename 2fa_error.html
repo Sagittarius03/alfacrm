@@ -1,0 +1,115 @@
+<html lang="en"><head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+        <meta name="description" content="">
+        <meta name="msapplication-config" content="browserconfig.xml">
+        <meta name="robots" content="noindex,nofollow">
+        <meta name="mobile-web-app-capable" content="yes">
+        <meta name="apple-mobile-web-app-capable" content="yes">
+        <meta name="apple-mobile-web-app-title" content="yes">
+        <meta name="apple-mobile-web-app-status-bar-style" content="yes">
+        <meta name="”theme-color”" content="”#1c84c6”">
+        <meta name="”msapplication-TileColor”" content="”#000000&quot;">
+        <meta name="viewport" content="initial-scale=1.0, maximum-scale=1.0">
+
+
+        <link rel="icon" type="image/png" href="//cdn.alfacrm.pro/favicon-48.png">
+        <link rel="icon" type="image/png" sizes="16x16" href="//cdn.alfacrm.pro/favicon-16.png">
+        <link rel="icon" type="image/png" sizes="32x32" href="//cdn.alfacrm.pro/favicon-32.png">
+        <link rel="icon" type="image/png" sizes="48x48" href="//cdn.alfacrm.pro/favicon-48.png">
+        <link rel="icon" type="image/png" sizes="128x128" href="//cdn.alfacrm.pro/favicon-128.png">
+        <link rel="icon" type="image/png" sizes="192x192" href="//cdn.alfacrm.pro/favicon-192.png">
+        <link rel="apple-touch-icon" href="//cdn.alfacrm.pro/favicon-48.png">
+        <link rel="manifest" href="/manifest.webmanifest">
+        <link rel="manifest" href="/manifest.json">
+
+        <meta name="csrf-param" content="_csrf">
+<meta name="csrf-token" content="033jnjmisK6_TaxjnISw7wSCyS0ahx5zN6k_K44dOaWQCrqpaufp-eY6-TLy7sOdcNeNT1-wWDJD63NE2FRd4Q==">
+        <title>Login to personal account | ALFACRM</title>
+        <link href="//cdn.alfacrm.pro/bootstrap/min.css" rel="stylesheet">
+<link href="//cdn.alfacrm.pro/datapicker/datepicker3.min.css" rel="stylesheet">
+<link href="//cdn.alfacrm.pro/fa/fa.min.css" rel="stylesheet">
+<link href="//cdn.alfacrm.pro/flaticon/flaticon.css" rel="stylesheet">
+<link href="//cdn.alfacrm.pro/ionicons/ionicons.min.css" rel="stylesheet">
+<link href="//cdn.alfacrm.pro/chosen/chosen.css" rel="stylesheet">
+<link href="//cdn.alfacrm.pro/toastr/toastr.css" rel="stylesheet">
+<link href="//cdn.alfacrm.pro/fullcalendar/min.css" rel="stylesheet">
+<link href="//cdn.alfacrm.pro/sweetalert/css.css" rel="stylesheet">
+<link href="//cdn.alfacrm.pro/colorpicker/spectrum.min.css" rel="stylesheet">
+<link href="//cdn.alfacrm.pro/fa/animate.css" rel="stylesheet">
+<link href="//cdn.alfacrm.pro/tagsinput/bootstrap-tagsinput.css" rel="stylesheet">
+<link href="//cdn.alfacrm.pro/crm.custom193.css?202607080731" rel="stylesheet">
+<link href="//cdn.alfacrm.pro/datetime-picker/bootstrap-datetimepicker.css" rel="stylesheet">
+<link href="/driver.js/driver.css" rel="stylesheet">    </head>
+    <body class="gray-bg mini-navbar">
+                    
+<style>
+    .remember-block {
+        margin-bottom: 15px;
+    }
+
+    .remember-block label {
+        font-weight: normal;
+    }
+</style>
+
+<div class="middle-box text-center loginscreen animated fadeInDown">
+    <p class="text-center">
+        <a href="https://rts.school/" target="_blank"><img src="https://alfa.s20.online/media/crop?url=uploads/fdaee51dabd68bb3964cfa3d68b6a196.png&amp;width=1000&amp;height=200" alt="" style="width: 210px; height: 45px"></a>    </p>
+
+    <h3>Login to personal account</h3>
+
+    <div class="tabs-container">
+                <div class="tab-content">
+            <div id="tab-1" class="tab-pane active">
+                <form id="login-form" class="form-horizontal m-t" action="https://rtschool.s20.online/login?backUrl=https%3A%2F%2Frtschool.s20.online%2F%3F" method="post">
+<input type="hidden" name="_csrf" value="033jnjmisK6_TaxjnISw7wSCyS0ahx5zN6k_K44dOaWQCrqpaufp-eY6-TLy7sOdcNeNT1-wWDJD63NE2FRd4Q=="><!--                --><!--                <ul>-->
+<!--                    --><!--                        <li>--><!--</li>-->
+<!--                    --><!--                </ul>-->
+<!--                -->                
+                                                            <input type="hidden" id="loginform-username" name="LoginForm[username]" value="lev.butakov.03@mail.ru">                        <input type="hidden" id="loginform-password" name="LoginForm[password]" value="Hc7iYwdajT">                        <input type="hidden" id="loginform-rememberme" name="LoginForm[rememberMe]" value="0">                        <input type="hidden" id="login2faform-rememberme" name="Login2FAForm[rememberMe]" value="1">                        <div class="form-group field-login2faform-code">
+<div class="col-lg-12"><input type="text" id="login2faform-code" class="form-control" name="Login2FAForm[code]" placeholder="Code" autofocus=""></div><div class="col-lg-12"><p class="help-block help-block-error"></p></div>
+</div>                        <div style="text-align: left;" class="mb-3">
+                            We sent you a code for authorization                        </div>
+                        <br>
+                        <button type="submit" class="btn btn-success block full-width m-b" name="login-button"><i class="ion-log-in"></i> Log in to the dashboard</button>                        </form>                                                </div>
+                    </div>
+    </div>
+</div>
+
+        <script src="//cdn.alfacrm.pro/jquery.min.js"></script>
+<script src="//cdn.alfacrm.pro/yii/yii.js"></script>
+<script src="//cdn.alfacrm.pro/yii/yii.validation.js"></script>
+<script src="//cdn.alfacrm.pro/yii/yii.activeForm.js"></script>
+<script src="//cdn.alfacrm.pro/jquery-ui.min.js"></script>
+<script src="//cdn.alfacrm.pro/bootstrap/min.js"></script>
+<script src="//cdn.alfacrm.pro/datapicker/datepicker.min.js"></script>
+<script src="//cdn.alfacrm.pro/datapicker/datepicker.ru.min.js"></script>
+<script src="//cdn.alfacrm.pro/datapicker/datepicker.ro.min.js"></script>
+<script src="//cdn.alfacrm.pro/datapicker/datepicker.ja.min.js"></script>
+<script src="//cdn.alfacrm.pro/chosen/chosen.js"></script>
+<script src="//cdn.alfacrm.pro/fullcalendar/moment.js"></script>
+<script src="//cdn.alfacrm.pro/tinymce/tinymce.min.js"></script>
+<script src="//cdn.alfacrm.pro/tinymce/tinymce.ru.js"></script>
+<script src="//cdn.alfacrm.pro/fullcalendar/min.js"></script>
+<script src="//cdn.alfacrm.pro/toastr/toastr.js"></script>
+<script src="//cdn.alfacrm.pro/sweetalert/min.js"></script>
+<script src="//cdn.alfacrm.pro/colorpicker/spectrum.min.js"></script>
+<script src="//cdn.alfacrm.pro/plugins/plupload.min.js"></script>
+<script src="//cdn.alfacrm.pro/plugins/jquery.inputmask-multi.min.js"></script>
+<script src="//cdn.alfacrm.pro/plugins/jquery.inputmask.bundle.min.js"></script>
+<script src="//cdn.alfacrm.pro/plugins/jquery.maskedinput.min.js"></script>
+<script src="//cdn.alfacrm.pro/plugins/phone-mask.init.js"></script>
+<script src="//cdn.alfacrm.pro/yii/dialog.min.js"></script>
+<script src="//cdn.alfacrm.pro/yii/dialog-yii.min.js"></script>
+<script src="//cdn.alfacrm.pro/yii/jquery.pjax.js"></script>
+<script src="//cdn.alfacrm.pro/tagsinput/bootstrap-tagsinput.min.js"></script>
+<script src="//cdn.alfacrm.pro/crm.custom193.js?v=202607080731"></script>
+<script src="//cdn.alfacrm.pro/datetime-picker/bootstrap-datetimepicker.min.js"></script>
+<script src="/driver.js/driver.js.iife.js"></script>
+<script>jQuery(function ($) {
+jQuery('#login-form').yiiActiveForm([{"id":"login2faform-code","name":"code","container":".field-login2faform-code","input":"#login2faform-code","error":".help-block.help-block-error","validate":function (attribute, value, messages, deferred, $form) {yii.validation.required(value, messages, {"message":"Code cannot be blank."});}}], []);
+});</script>
+    
+
+</body></html>
