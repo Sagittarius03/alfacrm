@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+import re
+
 import kivy
 kivy.require('2.2.0')
 
@@ -562,7 +564,7 @@ class CalendarWidget(BoxLayout):
                 self.show_lesson_details(instance.lesson_data)
                 return True
         return False
-        
+            
     def show_lesson_details(self, lesson):
         content = BoxLayout(orientation='vertical', padding=dp(15), spacing=dp(10))
         
@@ -594,7 +596,7 @@ class CalendarWidget(BoxLayout):
         }
         
         # Контейнер с прокруткой для информации
-        info_scroll = ScrollView(size_hint_y=None, height=dp(300), bar_width=dp(6))
+        info_scroll = ScrollView(size_hint_y=None, height=dp(320), bar_width=dp(6))
         info_container = BoxLayout(orientation='vertical', size_hint_y=None, spacing=dp(8))
         info_container.bind(minimum_height=info_container.setter('height'))
         
@@ -609,7 +611,6 @@ class CalendarWidget(BoxLayout):
             f"Кабинет: {lesson.get('room', 'Не указан')}",
         ]
         
-        # Добавляем комментарий только если он есть
         comment = lesson.get('comment', '').strip()
         if comment:
             info_lines.append(f"Комментарий: {comment}")
@@ -632,9 +633,9 @@ class CalendarWidget(BoxLayout):
         # --- Список учеников ---
         students = lesson.get('students', [])
         clients_text = lesson.get('client', '')
+        site_url = lesson.get('site_url', '')
         
         if students:
-            # Есть список учеников
             students_label = Label(text="Ученики:", color=get_color_from_hex('#66ccff'),
                                 font_size=dp(14), bold=True, size_hint_y=None, height=dp(25),
                                 halign='left')
@@ -642,19 +643,28 @@ class CalendarWidget(BoxLayout):
             
             for s in students:
                 name_text = s.get('name', 'Без имени')
+                customer_id = s.get('id', '')
                 is_cancelled = s.get('is_cancelled', False)
                 is_paused = s.get('is_paused', False)
                 pause_info = s.get('pause_info', '')
                 extra_info = s.get('extra_info', '')
+                balance = s.get('balance', None)
                 
-                # Создаем строку ученика
+                # Если остаток не пришел из API, пытаемся получить из БД
+                if balance is None and customer_id:
+                    crm_type = lesson.get('crm_type', '')
+                    balance_data = self.db.get_lesson_balance(customer_id, crm_type)
+                    if balance_data:
+                        balance = balance_data.get('balance')
+                
+                # Создаем строку ученика с возможностью клика
                 student_box = BoxLayout(orientation='horizontal', 
-                                    size_hint_y=None, height=dp(30), 
-                                    spacing=dp(10), padding=[dp(10), 0, dp(10), 0])
+                                    size_hint_y=None, height=dp(35), 
+                                    spacing=dp(10), padding=[dp(10), dp(2), dp(10), dp(2)])
                 
-                # Фон для ученика (чередование или выделение паузы)
+                # Фон для ученика
                 if is_cancelled or is_paused:
-                    bg_color = (0.25, 0.1, 0.1, 0.5)  # Красноватый фон
+                    bg_color = (0.25, 0.1, 0.1, 0.5)
                 else:
                     bg_color = (0.1, 0.1, 0.15, 0.5)
                 
@@ -665,44 +675,60 @@ class CalendarWidget(BoxLayout):
                                                     radius=[(dp(4), dp(4))])
                 student_box.bind(size=self.update_rect, pos=self.update_rect)
                 
-                # Имя ученика
+                # Контейнер для имени и остатка
+                name_container = BoxLayout(orientation='vertical', size_hint_x=0.5, spacing=dp(2))
+                
+                # Имя ученика - делаем кликабельным
                 if is_cancelled:
-                    # Отменен - красный зачеркнутый
                     name_lbl = Label(text=f"[color=ff6666][s]{name_text}[/s][/color] [X]", 
                                 markup=True,
-                                font_size=dp(13), size_hint_x=0.6,
+                                font_size=dp(13), size_hint_y=None, height=dp(18),
                                 halign='left', valign='middle')
                 elif is_paused:
-                    # На паузе - оранжевый зачеркнутый
                     name_lbl = Label(text=f"[color=ff9900][s]{name_text}[/s][/color] [P]", 
                                 markup=True,
-                                font_size=dp(13), size_hint_x=0.6,
+                                font_size=dp(13), size_hint_y=None, height=dp(18),
                                 halign='left', valign='middle')
                 else:
-                    # Активный - белый
-                    name_lbl = Label(text=f"[color=ffffff]{name_text}[/color] [V]", 
+                    name_lbl = Label(text=f"[color=ffffff]{name_text}[/color]", 
                                 markup=True,
-                                font_size=dp(13), size_hint_x=0.6,
+                                font_size=dp(13), size_hint_y=None, height=dp(18),
                                 halign='left', valign='middle')
                 
-                student_box.add_widget(name_lbl)
+                # Делаем имя кликабельным - открываем страницу ученика
+                if customer_id and site_url:
+                    student_url = f"{site_url}/teacher/1/customer/view?id={customer_id}"
+                    name_lbl.bind(on_touch_down=lambda instance, touch, url=student_url: self._open_link_on_touch(instance, touch, url))
+                
+                name_container.add_widget(name_lbl)
+                
+                # Отображаем остаток уроков
+                if balance is not None:
+                    balance_color = '#66ff66' if balance > 0 else '#ff6666'
+                    balance_lbl = Label(text=f"Остаток: {balance} ур.",
+                                    color=get_color_from_hex(balance_color),
+                                    font_size=dp(10), size_hint_y=None, height=dp(15),
+                                    halign='left', valign='middle')
+                    name_container.add_widget(balance_lbl)
+                
+                student_box.add_widget(name_container)
                 
                 # Статус и детали
-                status_box = BoxLayout(orientation='vertical', size_hint_x=0.4, spacing=dp(2))
+                status_box = BoxLayout(orientation='vertical', size_hint_x=0.5, spacing=dp(2))
                 
                 if is_cancelled:
                     status_lbl = Label(text="ОТМЕНЕН", color=(0.8, 0.2, 0.2, 1),
-                                    font_size=dp(11), size_hint_y=None, height=dp(15),
+                                    font_size=dp(11), size_hint_y=None, height=dp(18),
                                     halign='right', valign='middle', bold=True)
                     status_box.add_widget(status_lbl)
                 elif is_paused:
                     status_lbl = Label(text="ПАУЗА", color=(0.9, 0.6, 0.0, 1),
-                                    font_size=dp(11), size_hint_y=None, height=dp(15),
+                                    font_size=dp(11), size_hint_y=None, height=dp(18),
                                     halign='right', valign='middle', bold=True)
                     status_box.add_widget(status_lbl)
                 else:
                     status_lbl = Label(text="Активен", color=(0.2, 0.8, 0.2, 1),
-                                    font_size=dp(11), size_hint_y=None, height=dp(15),
+                                    font_size=dp(11), size_hint_y=None, height=dp(18),
                                     halign='right', valign='middle')
                     status_box.add_widget(status_lbl)
                 
@@ -710,8 +736,14 @@ class CalendarWidget(BoxLayout):
                 details = []
                 if pause_info:
                     details.append(f"пауза {pause_info}")
-                if extra_info:
-                    details.append(extra_info)
+                if extra_info and not balance:
+                    # Если баланс уже показан отдельно, не дублируем
+                    if 'ост' not in extra_info.lower():
+                        details.append(extra_info)
+                elif extra_info and balance:
+                    # Показываем только то, что не связано с остатком
+                    if 'ост' not in extra_info.lower():
+                        details.append(extra_info)
                 
                 if details:
                     details_lbl = Label(text=", ".join(details), 
@@ -724,28 +756,29 @@ class CalendarWidget(BoxLayout):
                 info_container.add_widget(student_box)
                 
         elif clients_text and clients_text != 'Не указан':
-            # Нет списка учеников, но есть текст с клиентами
+            # ... аналогично для текстовых клиентов ...
             clients_label = Label(text="Клиент(ы):", color=get_color_from_hex('#66ccff'),
                                 font_size=dp(14), bold=True, size_hint_y=None, height=dp(25),
                                 halign='left')
             info_container.add_widget(clients_label)
             
-            # Разбиваем клиентов
             raw_clients = [c.strip() for c in clients_text.split(',') if c.strip()]
             
             for raw_client in raw_clients:
-                # Проверяем на паузу
                 is_paused = '<strike' in raw_client or 'text-muted' in raw_client
-                # Очищаем от HTML
                 clean_name = raw_client.replace('<strike class="text-muted">', '') \
                                     .replace('</strike>', '').strip()
                 
+                # Пытаемся найти остаток в тексте
+                balance_match = re.search(r'\((\d+)\s*(?:ост\.?|уроков?|осталось)\)', raw_client, re.IGNORECASE)
+                balance = int(balance_match.group(1)) if balance_match else None
+                
                 client_box = BoxLayout(orientation='horizontal', 
-                                    size_hint_y=None, height=dp(30), 
-                                    spacing=dp(10), padding=[dp(10), 0, dp(10), 0])
+                                    size_hint_y=None, height=dp(35), 
+                                    spacing=dp(10), padding=[dp(10), dp(2), dp(10), dp(2)])
                 
                 if is_paused:
-                    bg_color = (0.25, 0.15, 0.05, 0.5)  # Желтоватый фон
+                    bg_color = (0.25, 0.15, 0.05, 0.5)
                     with client_box.canvas.before:
                         Color(*bg_color)
                         client_box.rect = RoundedRectangle(size=client_box.size, 
@@ -755,18 +788,27 @@ class CalendarWidget(BoxLayout):
                     
                     name_lbl = Label(text=f"[color=ff9900][s]{clean_name}[/s][/color] [P]", 
                                 markup=True,
-                                font_size=dp(13), size_hint_x=1,
+                                font_size=dp(13), size_hint_x=0.6,
                                 halign='left', valign='middle')
                 else:
-                    name_lbl = Label(text=f"[color=ffffff]{clean_name}[/color] [V]", 
+                    name_lbl = Label(text=f"[color=ffffff]{clean_name}[/color]", 
                                 markup=True,
-                                font_size=dp(13), size_hint_x=1,
+                                font_size=dp(13), size_hint_x=0.6,
                                 halign='left', valign='middle')
                 
                 client_box.add_widget(name_lbl)
+                
+                # Показываем остаток если есть
+                if balance is not None:
+                    balance_color = '#66ff66' if balance > 0 else '#ff6666'
+                    balance_lbl = Label(text=f"Остаток: {balance} ур.",
+                                    color=get_color_from_hex(balance_color),
+                                    font_size=dp(11), size_hint_x=0.4,
+                                    halign='right', valign='middle')
+                    client_box.add_widget(balance_lbl)
+                
                 info_container.add_widget(client_box)
         else:
-            # Нет информации о клиентах
             no_clients = Label(text="Клиент(ы): Не указан", 
                             color=get_color_from_hex('#888899'),
                             font_size=dp(13), size_hint_y=None, height=dp(25),
@@ -786,8 +828,10 @@ class CalendarWidget(BoxLayout):
         
         if students and len(students) == 1 and customer_id and site_url:
             lesson_url = f"{site_url}/teacher/1/customer/view?id={customer_id}"
-        elif lesson_id and site_url:
+        elif customer_id and site_url:
             lesson_url = f"{site_url}/teacher/1/customer/view?id={customer_id}"
+        elif lesson_id and site_url:
+            lesson_url = f"{site_url}/teacher/1/lesson/view?id={lesson_id}"
         else:
             lesson_url = lesson.get('link', '')
         
@@ -808,10 +852,17 @@ class CalendarWidget(BoxLayout):
         content.add_widget(btn_box)
         
         # --- Попап ---
-        self.popup = Popup(title='', content=content, size_hint=(0.8, 0.7),
+        self.popup = Popup(title='', content=content, size_hint=(0.8, 0.75),
                         background_color=(0.05, 0.05, 0.08, 1))
         close_btn.bind(on_press=self.popup.dismiss)
-        self.popup.open()    
+        self.popup.open()
+
+    def _open_link_on_touch(self, instance, touch, url):
+        """Обработчик клика по имени ученика для открытия ссылки"""
+        if instance.collide_point(*touch.pos):
+            webbrowser.open(url)
+            return True
+        return False
 
     def _update_strike(self, instance, value):
         """Обновляет позицию линии зачеркивания при изменении размера"""

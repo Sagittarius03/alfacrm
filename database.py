@@ -82,7 +82,53 @@ class Database:
                     value TEXT
                 )
             ''')
-    
+            
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS lesson_balances (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    customer_id TEXT,
+                    customer_name TEXT,
+                    balance INTEGER,
+                    crm_type TEXT,
+                    site_url TEXT,
+                    last_updated TEXT,
+                    UNIQUE(customer_id, crm_type)
+                )
+            ''')
+            
+            try:
+                cursor.execute('ALTER TABLE lessons ADD COLUMN balance INTEGER DEFAULT 0')
+            except sqlite3.OperationalError:
+                pass  # Колонка уже существует
+    # Добавляем методы для работы с остатками
+    def save_lesson_balance(self, customer_id, customer_name, balance, crm_type, site_url):
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                INSERT OR REPLACE INTO lesson_balances 
+                (customer_id, customer_name, balance, crm_type, site_url, last_updated)
+                VALUES (?, ?, ?, ?, ?, ?)
+            ''', (customer_id, customer_name, balance, crm_type, site_url, datetime.now().isoformat()))
+            conn.commit()
+
+    def get_lesson_balance(self, customer_id, crm_type):
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT * FROM lesson_balances 
+                WHERE customer_id = ? AND crm_type = ?
+            ''', (customer_id, crm_type))
+            row = cursor.fetchone()
+            return dict(row) if row else None
+
+    def get_all_lesson_balances(self, crm_type=None):
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            if crm_type:
+                cursor.execute('SELECT * FROM lesson_balances WHERE crm_type = ?', (crm_type,))
+            else:
+                cursor.execute('SELECT * FROM lesson_balances')
+            return [dict(row) for row in cursor.fetchall()]
     def save_session_cookies(self, cookies, profile='rts'):
         with self.get_connection() as conn:
             cursor = conn.cursor()

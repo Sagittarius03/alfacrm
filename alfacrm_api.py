@@ -456,19 +456,39 @@ class AlfaCRMApi:
                     pause_match = re.search(r'\(пауза\s+([^)]+)\)', name_html)
                     is_paused = bool(pause_match)
                     pause_info = pause_match.group(1) if pause_match else None
-                    # Извлекаем остатки (ост., ур.)
-                    extra_match = re.search(r'\(([^)]*(?:ост\.?|уроков?)[^)]*)\)', name_html)
+                    
+                    # Улучшенный поиск остатков - ищем (X ост) или (X ур) или (X осталось)
+                    balance_match = re.search(r'\((\d+)\s*(?:ост\.?|уроков?|осталось)\)', name_html, re.IGNORECASE)
+                    balance = int(balance_match.group(1)) if balance_match else None
+                    
+                    # Извлекаем остатки (ост., ур.) как дополнительную информацию
+                    extra_match = re.search(r'\(([^)]*(?:ост\.?|уроков?|осталось)[^)]*)\)', name_html, re.IGNORECASE)
                     extra_info = extra_match.group(1) if extra_match else ''
-                    students.append({
+                    
+                    student_data = {
                         'id': cid,
                         'name': clean_name,
                         'is_cancelled': is_cancelled,
                         'is_paused': is_paused,
                         'pause_info': pause_info,
                         'extra_info': extra_info,
-                    })
-                if students:
-                    customer_id = students[0]['id']
+                        'balance': balance  # Добавляем остаток
+                    }
+                    students.append(student_data)
+                    
+                    # Сохраняем остаток в БД
+                    if balance is not None and hasattr(self, 'db'):
+                        self.db.save_lesson_balance(
+                            customer_id=cid,
+                            customer_name=clean_name,
+                            balance=balance,
+                            crm_type=self.crm_type,
+                            site_url=self.config['site_url']
+                        )
+                    
+                    if not customer_id:
+                        customer_id = cid
+                        
             elif isinstance(customers, list):
                 for item in customers:
                     if isinstance(item, dict):
@@ -479,19 +499,36 @@ class AlfaCRMApi:
                         pause_match = re.search(r'\(пауза\s+([^)]+)\)', name_html)
                         is_paused = bool(pause_match)
                         pause_info = pause_match.group(1) if pause_match else None
-                        extra_match = re.search(r'\(([^)]*(?:ост\.?|уроков?|осталось)[^)]*)\)', name_html)
+                        
+                        # Улучшенный поиск остатков
+                        balance_match = re.search(r'\((\d+)\s*(?:ост\.?|уроков?|осталось)\)', name_html, re.IGNORECASE)
+                        balance = int(balance_match.group(1)) if balance_match else None
+                        
+                        extra_match = re.search(r'\(([^)]*(?:ост\.?|уроков?|осталось)[^)]*)\)', name_html, re.IGNORECASE)
                         extra_info = extra_match.group(1).strip() if extra_match else ''
-                        students.append({
+                        
+                        student_data = {
                             'id': cid,
                             'name': clean_name,
                             'is_cancelled': is_cancelled,
                             'is_paused': is_paused,
                             'pause_info': pause_info,
                             'extra_info': extra_info,
-                        })
-                if students:
-                    customer_id = students[0]['id']
-            
+                            'balance': balance
+                        }
+                        students.append(student_data)
+                        
+                        if balance is not None and hasattr(self, 'db'):
+                            self.db.save_lesson_balance(
+                                customer_id=cid,
+                                customer_name=clean_name,
+                                balance=balance,
+                                crm_type=self.crm_type,
+                                site_url=self.config['site_url']
+                            )
+                        
+                        if not customer_id:
+                            customer_id = cid
             # Если customer_id не найден, пытаемся из других полей
             if not customer_id:
                 customer_id = data.get('customer_id') or data.get('client_id')
