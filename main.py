@@ -29,7 +29,6 @@ from notification_manager import NotificationManager
 from scheduler import Scheduler
 from config_manager import ConfigManager
 
-# Попытка импортировать логотип из файла logo.py
 try:
     from logo import LOGO_BASE64
 except ImportError:
@@ -44,10 +43,28 @@ class MainApp(App):
         self.title = "AlfaCRM Automation"
         self.db = Database()
         self.config_manager = ConfigManager(db=self.db)
-        self.alfacrm = AlfaCRMApi(self.config_manager.config)
-        self.alfacrm.db = self.db
+        self.api_instances = []
+        self.load_profiles()
         self.notification_manager = NotificationManager(self.db)
-        self.scheduler = Scheduler(self.alfacrm, self.db, self.notification_manager)
+        self.scheduler = Scheduler(self.api_instances[0] if self.api_instances else None, self.db, self.notification_manager)
+        
+    def load_profiles(self):
+        profiles = self.config_manager.get_profiles()
+        for profile in profiles:
+            api = AlfaCRMApi(profile, crm_type=profile.get('crm_type', 'rts'))
+            api.db = self.db
+            self.api_instances.append(api)
+        if not self.api_instances:
+            # Создаём пустой профиль по умолчанию
+            default_profile = {
+                'site_url': 'https://rtschool.s20.online',
+                'username': '',
+                'password': '',
+                'crm_type': 'rts'
+            }
+            api = AlfaCRMApi(default_profile, crm_type='rts')
+            api.db = self.db
+            self.api_instances.append(api)
         
     def build(self):
         main_layout = BoxLayout(orientation='vertical')
@@ -104,8 +121,7 @@ class MainApp(App):
         
         # Календарь
         calendar_tab = TabbedPanelItem(text="Календарь")
-        self.calendar_widget = CalendarWidget(self.db)
-        self.calendar_widget.api = self.alfacrm
+        self.calendar_widget = CalendarWidget(self.db, self.api_instances)
         calendar_tab.add_widget(self.calendar_widget)
         tabs.add_widget(calendar_tab)
         
@@ -138,12 +154,16 @@ class MainApp(App):
         return main_layout
         
     def check_connection(self, dt):
-        if self.config_manager.get('username') and self.config_manager.get('password'):
+        if any(api.config.get('username') for api in self.api_instances):
             threading.Thread(target=self.test_login, daemon=True).start()
             
     def test_login(self):
         try:
-            if self.alfacrm.login():
+            all_success = True
+            for api in self.api_instances:
+                if not api.login():
+                    all_success = False
+            if all_success:
                 Clock.schedule_once(lambda dt: self.update_status('Подключено', '#44ff44'))
                 Clock.schedule_once(lambda dt: self.calendar_widget.build_calendar(), 0.5)
                 week_start = datetime.now() - timedelta(days=datetime.now().weekday())
@@ -151,7 +171,7 @@ class MainApp(App):
                 lessons = self.db.get_lessons_for_period(week_start.strftime("%Y-%m-%d"), week_end.strftime("%Y-%m-%d"))
                 Clock.schedule_once(lambda dt: self.update_lesson_count(len(lessons)))
             else:
-                Clock.schedule_once(lambda dt: self.update_status('Нет подключения', '#ff4444'))
+                Clock.schedule_once(lambda dt: self.update_status('Частичное подключение', '#ffaa44'))
         except Exception as e:
             print(f"Ошибка: {e}")
             Clock.schedule_once(lambda dt: self.update_status('Ошибка подключения', '#ff4444'))
@@ -171,38 +191,33 @@ class MainApp(App):
     def on_stop(self):
         if hasattr(self, 'scheduler'):
             self.scheduler.stop()
-        if hasattr(self, 'alfacrm'):
-            self.alfacrm.close()
+        for api in self.api_instances:
+            api.close()
 
 
 # ============================== КАЛЕНДАРЬ ==============================
 class CalendarWidget(BoxLayout):
-    def __init__(self, db, **kwargs):
+    def __init__(self, db, api_instances, **kwargs):
         super().__init__(**kwargs)
         self.db = db
-        self.api = None
+        self.api_instances = api_instances
         self.orientation = 'vertical'
         self.current_date = datetime.now()
         self.hours = list(range(8, 22))
         self.zoom_level = 1.0
-        # Кеш данных
-        self.week_lessons_cache = []
-        self.lessons_by_day_cache = {}
+        self.data_loaded = False
         self.current_week_start_str = None
         self.current_week_end_str = None
-        self.data_loaded = False
-        # Ссылки на виджеты для перестройки таблицы
+        self.lessons_by_day_cache = {}
         self.scroll = None
         self.calendar_grid = None
         Clock.schedule_once(lambda dt: self.build_calendar(), 0.1)
         Window.bind(on_resize=self.on_window_resize)
         
     def on_window_resize(self, window, width, height):
-        # При изменении размера только перестраиваем таблицу, не загружая данные
         self.rebuild_table()
         
     def build_calendar(self):
-        """Полная перестройка календаря (навигация + таблица)"""
         self.clear_widgets()
         
         # Навигация
@@ -230,7 +245,6 @@ class CalendarWidget(BoxLayout):
         today_btn.bind(on_press=self.go_today)
         nav.add_widget(today_btn)
         
-        # Масштаб
         zoom_box = BoxLayout(size_hint_x=None, width=dp(120), spacing=dp(5))
         zoom_out = Button(text="-", size_hint_x=None, width=dp(35),
                           background_color=(0.15, 0.15, 0.2, 1), color=(1,1,1,1),
@@ -255,63 +269,57 @@ class CalendarWidget(BoxLayout):
         nav.add_widget(next_btn)
         self.add_widget(nav)
         
-        # Прокрутка
         self.scroll = ScrollView(do_scroll_x=True, do_scroll_y=True,
                                  bar_width=dp(8), bar_color=(0.3,0.3,0.5,0.8))
         
-        # Загружаем данные, если неделя изменилась
         self.load_week_lessons()
         
-        # Создаём таблицу
         self.calendar_grid = GridLayout(cols=8, spacing=1, size_hint=(1, 1))
         self.build_table()
         
         self.scroll.add_widget(self.calendar_grid)
         self.add_widget(self.scroll)
         
-    def rebuild_table(self):
-        """Перестроить только таблицу с текущими данными (без перезагрузки)"""
-        if self.calendar_grid:
-            # Очищаем и перестраиваем
-            self.calendar_grid.clear_widgets()
-            self.build_table()
-        
     def load_week_lessons(self):
-        """Загрузить уроки за неделю, если неделя изменилась"""
         week_start = self.current_date - timedelta(days=self.current_date.weekday())
         week_end = week_start + timedelta(days=6)
         start_str = week_start.strftime("%Y-%m-%d")
         end_str = week_end.strftime("%Y-%m-%d")
         
-        # Проверяем, изменилась ли неделя
         if (self.current_week_start_str == start_str and 
             self.current_week_end_str == end_str and 
             self.data_loaded):
-            # Данные уже загружены
             return
         
-        # Обновляем кеш
         self.current_week_start_str = start_str
         self.current_week_end_str = end_str
         
-        if self.api:
+        all_lessons = []
+        for api in self.api_instances:
             try:
-                lessons = self.api.get_lessons_from_api(start_str, end_str)
+                lessons = api.get_lessons_from_api(start_str, end_str)
                 if lessons:
-                    self.db.save_lessons(lessons)
+                    all_lessons.extend(lessons)
             except Exception as e:
-                print(f"Ошибка загрузки: {e}")
+                print(f"Ошибка загрузки из {api.crm_type}: {e}")
         
-        self.week_lessons_cache = self.db.get_lessons_for_period(start_str, end_str)
+        if all_lessons:
+            self.db.save_lessons(all_lessons)
+        
+        self.week_lessons = self.db.get_lessons_for_period(start_str, end_str)
         self.lessons_by_day_cache = {}
-        for lesson in self.week_lessons_cache:
+        for lesson in self.week_lessons:
             day = lesson.get('date', '')
             if day:
                 self.lessons_by_day_cache.setdefault(day, []).append(lesson)
         self.data_loaded = True
         
+    def rebuild_table(self):
+        if self.calendar_grid:
+            self.calendar_grid.clear_widgets()
+            self.build_table()
+        
     def build_table(self):
-        """Построить таблицу на основе кешированных данных"""
         if not self.calendar_grid:
             return
         self.calendar_grid.clear_widgets()
@@ -402,102 +410,100 @@ class CalendarWidget(BoxLayout):
                 if date_str in self.lessons_by_day_cache:
                     for l in self.lessons_by_day_cache[date_str]:
                         l_time = l.get('time', '')
-                        # Время теперь может быть в формате "HH:MM - HH:MM"
-                        # Проверяем, попадает ли урок в этот час (начало в этом часе)
                         if l_time and l_time.startswith(f"{hour:02d}:"):
                             lessons_in_hour.append(l)
                 
                 if lessons_in_hour:
-                    widget = self.create_lesson_widget(lessons_in_hour, curr_h, col_w)
-                    cell.add_widget(widget)
+                    # Создаём вертикальный контейнер для нескольких уроков
+                    if len(lessons_in_hour) == 1:
+                        widget = self.create_lesson_widget(lessons_in_hour[0], curr_h, col_w)
+                        cell.add_widget(widget)
+                    else:
+                        # Несколько уроков – показываем их друг под другом
+                        multi_box = BoxLayout(orientation='vertical', size_hint=(1, 1), spacing=dp(1))
+                        for lesson in lessons_in_hour:
+                            # Уменьшаем высоту каждого урока пропорционально
+                            single_widget = self.create_lesson_widget(lesson, curr_h/len(lessons_in_hour), col_w)
+                            single_widget.size_hint_y = None
+                            single_widget.height = curr_h/len(lessons_in_hour) - dp(1)
+                            multi_box.add_widget(single_widget)
+                        cell.add_widget(multi_box)
                 
                 self.calendar_grid.add_widget(cell)
                     
-    def create_lesson_widget(self, lessons, height, width):
+    def create_lesson_widget(self, lesson, height, width):
         box = BoxLayout(orientation='vertical',
                         size_hint=(None, None),
                         size=(width-dp(4), height-dp(2)),
                         padding=[dp(2), dp(2), dp(2), dp(2)])
         
-        if len(lessons) == 1:
-            lesson = lessons[0]
-            is_occupied = lesson.get('is_occupied', False)
-            status = lesson.get('status', 'scheduled')
-            ltype = lesson.get('type', 'unknown')
-        else:
-            is_occupied = True
-            status = 'scheduled'
-            ltype = 'multiple'
+        is_occupied = lesson.get('is_occupied', False)
+        status = lesson.get('status', 'scheduled')
+        ltype = lesson.get('type', 'unknown')
+        crm_type = lesson.get('crm_type', 'rts')
         
-        # Определяем цвет фона согласно новым правилам
-        # Приоритет: cancelled > trial > occupied > стандартный
+        # Цвет фона
         if status == 'cancelled':
-            bg = (0.6, 0.1, 0.1, 0.9)          # красный
+            bg = (0.6, 0.1, 0.1, 0.9)
             border = (0.8, 0.2, 0.2, 1)
             text_color = (1, 0.8, 0.8, 1)
         elif ltype == 'trial':
-            bg = (0.1, 0.6, 0.1, 0.9)          # зелёный
+            bg = (0.1, 0.6, 0.1, 0.9)
             border = (0.2, 0.8, 0.2, 1)
             text_color = (0.8, 1, 0.8, 1)
         elif is_occupied:
-            bg = (0.3, 0.3, 0.3, 0.9)          # светло-серый (забронирован)
+            bg = (0.3, 0.3, 0.3, 0.9)
             border = (0.5, 0.5, 0.5, 1)
             text_color = (0.9, 0.9, 0.9, 1)
         else:
-            bg = (0.15, 0.35, 0.65, 0.9)      # стандартный синий
+            bg = (0.15, 0.35, 0.65, 0.9)
             border = (0.25, 0.55, 0.85, 1)
             text_color = (1, 1, 1, 1)
         
+        # Цвет нижней границы в зависимости от CRM
+        if crm_type == 'wellkid':
+            bottom_color = (1.0, 0.6, 0.0, 1)  # оранжевый
+        else:
+            bottom_color = (0.0, 0.2, 0.6, 1)  # тёмно-синий (RTS)
+        
         with box.canvas.before:
+            # Основной фон
             Color(*bg)
             box.rect = RoundedRectangle(size=box.size, pos=box.pos, radius=[(dp(4), dp(4))])
-            Color(*border)
-            box.border = RoundedRectangle(size=box.size, pos=box.pos, radius=[(dp(4), dp(4))])
+            # Нижняя граница (полоса)
+            Color(*bottom_color)
+            box.bottom_border = Rectangle(size=(box.width, dp(4)), pos=(box.x, box.y))
         box.bind(size=self.update_rect, pos=self.update_rect)
         
-        if len(lessons) == 1:
-            l = lessons[0]
-            client = l.get('client', '')
-            
-            # Статус-символы
-            status_symbols = {'scheduled': '(P)', 'completed': '(C)', 'cancelled': '(X)'}
-            sym = status_symbols.get(status, '')
-            if sym:
-                top_row = BoxLayout(orientation='horizontal', size_hint_y=None, height=height*0.5)
-                status_lbl = Label(text=sym, color=text_color, font_size=dp(10), bold=True,
-                                   size_hint_x=None, width=dp(30), halign='center')
-                top_row.add_widget(status_lbl)
-                name_lbl = Label(text=client, color=text_color, font_size=dp(9), bold=True,
-                                 size_hint_x=1, text_size=(width-dp(30), None), halign='left', shorten=True)
-                top_row.add_widget(name_lbl)
-                box.add_widget(top_row)
-            else:
-                name_lbl = Label(text=client, color=text_color, font_size=dp(9), bold=True,
-                                 size_hint_y=None, height=height*0.5,
-                                 text_size=(width-dp(10), None), halign='left', shorten=True)
-                box.add_widget(name_lbl)
-            
-            # Отображаем время (диапазон)
-            time_display = l.get('time', '')
-            if not time_display:
-                time_display = l.get('time_start', '')
-            time_lbl = Label(text=time_display, color=(0.7,0.7,0.8,1),
-                             font_size=dp(8), size_hint_y=None, height=height*0.5,
-                             text_size=(width-dp(10), None), halign='left')
-            box.add_widget(time_lbl)
-            box.lesson = l
-        else:
-            names = []
-            for l in lessons[:2]:
-                names.append(l.get('client', '?'))
-            if len(lessons) > 2:
-                names.append(f"+{len(lessons)-2}")
-            lbl = Label(text=", ".join(names), color=text_color, font_size=dp(9),
-                        size_hint_y=None, height=height-dp(4),
-                        text_size=(width-dp(10), None), halign='center', valign='middle')
-            box.add_widget(lbl)
-            box.lessons = lessons
+        # Время (вверху)
+        time_display = lesson.get('time', '')
+        if not time_display:
+            time_display = lesson.get('time_start', '')
+        time_lbl = Label(text=time_display, color=(1, 1, 1, 1),
+                         font_size=dp(9), bold=True,
+                         size_hint_y=None, height=height*0.35,
+                         text_size=(width-dp(10), None), halign='left')
+        box.add_widget(time_lbl)
         
+        # Имя клиента
+        client = lesson.get('client', '')
+        if len(client) > 10:
+            client = client + '..'
+        client_lbl = Label(text=client, color=text_color, font_size=dp(9), bold=True,
+                           size_hint_y=None, height=height*0.35,
+                           text_size=(width-dp(10), None), halign='left', shorten=True)
+        box.add_widget(client_lbl)
+        
+        # Статус-символ (в нижней части)
+        status_symbols = {'scheduled': '(P)', 'completed': '(C)', 'cancelled': '(X)'}
+        sym = status_symbols.get(status, '')
+        if sym:
+            status_lbl = Label(text=sym, color=text_color, font_size=dp(8),
+                               size_hint_y=None, height=height*0.3,
+                               halign='right')
+            box.add_widget(status_lbl)
+        
+        box.lesson = lesson
         box.bind(on_touch_down=self._on_lesson_click)
         return box
         
@@ -505,8 +511,6 @@ class CalendarWidget(BoxLayout):
         if instance.collide_point(*touch.pos):
             if hasattr(instance, 'lesson'):
                 self.show_lesson_details(instance.lesson)
-            elif hasattr(instance, 'lessons'):
-                self.show_lesson_details(instance.lessons[0])
             return True
         return False
         
@@ -536,20 +540,22 @@ class CalendarWidget(BoxLayout):
 Комментарий: {lesson.get('comment', 'Нет')}
 Преподаватель: {lesson.get('teacher', 'Не указан')}
 Кабинет: {lesson.get('room', 'Не указан')}
+CRM: {lesson.get('crm_type', 'неизвестно')}
         """
         info_lbl = Label(text=info, color=get_color_from_hex('#ccccdd'),
-                         font_size=dp(14), size_hint_y=None, height=dp(220),
+                         font_size=dp(14), size_hint_y=None, height=dp(240),
                          halign='left', valign='top', text_size=(dp(400), None))
         content.add_widget(info_lbl)
         
         btn_box = BoxLayout(size_hint_y=None, height=dp(50), spacing=dp(10))
         customer_id = lesson.get('customer_id')
-        if customer_id:
-            lesson_url = f"https://rtschool.s20.online/teacher/1/customer/view?id={customer_id}"
+        site_url = lesson.get('site_url', '')
+        if customer_id and site_url:
+            lesson_url = f"{site_url}/teacher/1/customer/view?id={customer_id}"
         else:
             lesson_id = lesson.get('id')
-            if lesson_id:
-                lesson_url = f"https://rtschool.s20.online/teacher/1/lesson/view?id={lesson_id}"
+            if lesson_id and site_url:
+                lesson_url = f"{site_url}/teacher/1/lesson/view?id={lesson_id}"
             else:
                 lesson_url = lesson.get('link', '')
         if lesson_url:
@@ -583,20 +589,25 @@ class CalendarWidget(BoxLayout):
         if 0.5 <= new_zoom <= 1.5:
             self.zoom_level = new_zoom
             self.zoom_label.text = f"{int(self.zoom_level*100)}%"
-            self.rebuild_table()  # только перестройка таблицы
+            self.rebuild_table()
             
     def update_rect(self, instance, value):
-        for attr in ['rect', 'border']:
+        for attr in ['rect', 'border', 'bottom_border']:
             if hasattr(instance, attr):
-                getattr(instance, attr).pos = instance.pos
-                getattr(instance, attr).size = instance.size
+                obj = getattr(instance, attr)
+                if attr == 'bottom_border':
+                    obj.size = (instance.width, dp(4))
+                    obj.pos = (instance.x, instance.y)
+                else:
+                    obj.pos = instance.pos
+                    obj.size = instance.size
         if hasattr(instance, 'children'):
             for child in instance.children:
                 self.update_rect(child, value)
                 
     def prev_week(self, instance):
         self.current_date -= timedelta(days=7)
-        self.data_loaded = False  # сброс флага, чтобы загрузить новые данные
+        self.data_loaded = False
         self.build_calendar()
         
     def next_week(self, instance):
@@ -631,35 +642,70 @@ class SettingsTab(BoxLayout):
         content = BoxLayout(orientation='vertical', size_hint_y=None, spacing=dp(15))
         content.bind(minimum_height=content.setter('height'))
         
-        # Группа: Подключение
-        group1 = BoxLayout(orientation='vertical', size_hint_y=None, height=dp(220), spacing=dp(10))
-        group1_label = Label(text="Подключение к CRM", color=get_color_from_hex('#66ccff'),
+        # Группа: Подключение (профили)
+        group1 = BoxLayout(orientation='vertical', size_hint_y=None, spacing=dp(10))
+        group1_label = Label(text="Профили CRM", color=get_color_from_hex('#66ccff'),
                              font_size=dp(16), bold=True, size_hint_y=None, height=dp(30))
         group1.add_widget(group1_label)
         
-        fields = [
-            ('URL сайта:', 'site_url'),
-            ('Логин:', 'username'),
-            ('Пароль:', 'password')
-        ]
-        self.entries = {}
-        for label_text, key in fields:
-            container = BoxLayout(size_hint_y=None, height=dp(50), spacing=dp(10))
-            label = Label(text=label_text, color=get_color_from_hex('#888899'),
-                          font_size=dp(13), size_hint_x=0.25, halign='right')
-            container.add_widget(label)
-            is_pwd = 'пароль' in label_text.lower() or 'password' in label_text.lower()
-            entry = TextInput(text=str(self.app.config_manager.get(key, '')),
-                              size_hint_x=0.75, height=dp(40),
-                              background_color=(0.12,0.12,0.18,1),
-                              foreground_color=(1,1,1,1),
-                              cursor_color=(0.3,0.6,1,1),
-                              password=is_pwd,
-                              font_size=dp(13), padding=[dp(10), dp(5)])
-            container.add_widget(entry)
-            self.entries[key] = entry
-            group1.add_widget(container)
-        content.add_widget(group1)
+        profiles = self.app.config_manager.get_profiles()
+        self.profile_widgets = []
+        for idx, profile in enumerate(profiles):
+            prof_box = BoxLayout(orientation='vertical', size_hint_y=None, height=dp(200), spacing=dp(5))
+            prof_box.border_color = get_color_from_hex('#333344')
+            with prof_box.canvas.before:
+                Color(0.1, 0.1, 0.15, 1)
+                prof_box.rect = RoundedRectangle(size=prof_box.size, pos=prof_box.pos, radius=[(dp(6), dp(6))])
+            prof_box.bind(size=self.update_rect, pos=self.update_rect)
+            
+            # Заголовок профиля
+            header_box = BoxLayout(size_hint_y=None, height=dp(30))
+            crm_label = Label(text=profile.get('crm_type', 'rts').upper(), color=get_color_from_hex('#88ccff'),
+                              font_size=dp(13), bold=True, size_hint_x=0.3)
+            header_box.add_widget(crm_label)
+            # Кнопка удаления (позже)
+            header_box.add_widget(Label(text="", size_hint_x=0.7))
+            prof_box.add_widget(header_box)
+            
+            # Поля
+            fields = [
+                ('URL:', 'site_url'),
+                ('Логин:', 'username'),
+                ('Пароль:', 'password')
+            ]
+            entries = {}
+            for label_text, key in fields:
+                container = BoxLayout(size_hint_y=None, height=dp(35), spacing=dp(5))
+                label = Label(text=label_text, color=get_color_from_hex('#888899'),
+                              font_size=dp(11), size_hint_x=0.25, halign='right')
+                container.add_widget(label)
+                is_pwd = 'пароль' in label_text.lower() or 'password' in label_text.lower()
+                entry = TextInput(text=str(profile.get(key, '')),
+                                  size_hint_x=0.75, height=dp(30),
+                                  background_color=(0.12,0.12,0.18,1),
+                                  foreground_color=(1,1,1,1),
+                                  cursor_color=(0.3,0.6,1,1),
+                                  password=is_pwd,
+                                  font_size=dp(12), padding=[dp(8), dp(3)])
+                container.add_widget(entry)
+                entries[key] = entry
+                prof_box.add_widget(container)
+            
+            # Скрытое поле для crm_type
+            crm_type_entry = TextInput(text=profile.get('crm_type', 'rts'), size_hint_y=None, height=0, opacity=0)
+            prof_box.add_widget(crm_type_entry)
+            entries['crm_type'] = crm_type_entry
+            
+            prof_box.entries = entries
+            self.profile_widgets.append(prof_box)
+            content.add_widget(prof_box)
+        
+        # Кнопка добавления профиля
+        add_btn = Button(text="+ Добавить профиль", size_hint_y=None, height=dp(40),
+                         background_color=(0.15,0.3,0.5,1), color=(1,1,1,1),
+                         font_size=dp(13), bold=True)
+        add_btn.bind(on_press=self.add_profile)
+        content.add_widget(add_btn)
         
         # Разделитель
         sep = BoxLayout(size_hint_y=None, height=dp(2))
@@ -686,7 +732,7 @@ class SettingsTab(BoxLayout):
                           cursor_color=(0.3,0.6,1,1),
                           font_size=dp(13), padding=[dp(10), dp(5)])
         container.add_widget(entry)
-        self.entries['check_interval_hours'] = entry
+        self.entries = {'check_interval_hours': entry}
         group2.add_widget(container)
         
         # Автозапуск
@@ -730,6 +776,50 @@ class SettingsTab(BoxLayout):
         scroll.add_widget(content)
         self.add_widget(scroll)
         
+    def add_profile(self, instance):
+        # Добавляем новый профиль в UI
+        prof_box = BoxLayout(orientation='vertical', size_hint_y=None, height=dp(200), spacing=dp(5))
+        prof_box.border_color = get_color_from_hex('#333344')
+        with prof_box.canvas.before:
+            Color(0.1, 0.1, 0.15, 1)
+            prof_box.rect = RoundedRectangle(size=prof_box.size, pos=prof_box.pos, radius=[(dp(6), dp(6))])
+        prof_box.bind(size=self.update_rect, pos=self.update_rect)
+        
+        # Заголовок
+        header_box = BoxLayout(size_hint_y=None, height=dp(30))
+        crm_label = Label(text="НОВЫЙ", color=get_color_from_hex('#88ccff'),
+                          font_size=dp(13), bold=True, size_hint_x=0.3)
+        header_box.add_widget(crm_label)
+        header_box.add_widget(Label(text="", size_hint_x=0.7))
+        prof_box.add_widget(header_box)
+        
+        entries = {}
+        for label_text, key in [('URL:', 'site_url'), ('Логин:', 'username'), ('Пароль:', 'password')]:
+            container = BoxLayout(size_hint_y=None, height=dp(35), spacing=dp(5))
+            label = Label(text=label_text, color=get_color_from_hex('#888899'),
+                          font_size=dp(11), size_hint_x=0.25, halign='right')
+            container.add_widget(label)
+            is_pwd = 'пароль' in label_text.lower() or 'password' in label_text.lower()
+            entry = TextInput(text='', size_hint_x=0.75, height=dp(30),
+                              background_color=(0.12,0.12,0.18,1),
+                              foreground_color=(1,1,1,1),
+                              cursor_color=(0.3,0.6,1,1),
+                              password=is_pwd,
+                              font_size=dp(12), padding=[dp(8), dp(3)])
+            container.add_widget(entry)
+            entries[key] = entry
+            prof_box.add_widget(container)
+        # crm_type
+        crm_type_entry = TextInput(text='rts', size_hint_y=None, height=0, opacity=0)
+        prof_box.add_widget(crm_type_entry)
+        entries['crm_type'] = crm_type_entry
+        
+        prof_box.entries = entries
+        # Вставляем перед кнопкой добавления
+        parent = instance.parent
+        parent.add_widget(prof_box, index=parent.children.index(instance))
+        self.profile_widgets.append(prof_box)
+        
     def toggle_auto_start(self, instance):
         current = self.app.config_manager.get('auto_start', False)
         new_val = not current
@@ -738,14 +828,35 @@ class SettingsTab(BoxLayout):
         instance.background_color = (0.15,0.4,0.15,1) if new_val else (0.3,0.3,0.3,1)
         
     def save_settings(self, instance):
-        for key, entry in self.entries.items():
-            self.app.config_manager.set(key, entry.text)
+        # Сохраняем профили
+        profiles = []
+        for prof_box in self.profile_widgets:
+            entries = prof_box.entries
+            profile = {
+                'site_url': entries['site_url'].text,
+                'username': entries['username'].text,
+                'password': entries['password'].text,
+                'crm_type': entries['crm_type'].text if entries['crm_type'].text else 'rts'
+            }
+            if profile['site_url'] and profile['username']:
+                profiles.append(profile)
+        self.app.config_manager.save_profiles(profiles)
+        
+        # Сохраняем интервал
         try:
             interval = int(self.entries['check_interval_hours'].text)
             if interval < 1: interval = 1
             self.app.config_manager.set('check_interval_hours', interval)
             self.app.scheduler.set_check_interval(interval)
         except: pass
+        
+        # Перезагружаем API инстансы
+        self.app.api_instances = []
+        self.app.load_profiles()
+        self.app.calendar_widget.api_instances = self.app.api_instances
+        self.app.calendar_widget.data_loaded = False
+        self.app.calendar_widget.build_calendar()
+        
         self.status_label.text = "Настройки сохранены"
         self.status_label.color = get_color_from_hex('#66cc66')
         
@@ -754,22 +865,19 @@ class SettingsTab(BoxLayout):
         self.status_label.color = get_color_from_hex('#cccc00')
         def test():
             try:
-                for key, entry in self.entries.items():
-                    self.app.config_manager.set(key, entry.text)
-                api = AlfaCRMApi(self.app.config_manager.config)
-                api.db = self.app.db
-                api.setup_driver()
-                success = api.login()
-                api.close()
-                if success:
-                    Clock.schedule_once(lambda dt: self.update_status("Подключение успешно", get_color_from_hex('#66cc66')))
-                else:
-                    Clock.schedule_once(lambda dt: self.update_status("Ошибка подключения", get_color_from_hex('#ff6666')))
+                for api in self.app.api_instances:
+                    if not api.login():
+                        self.update_status("Ошибка подключения к одному из профилей", get_color_from_hex('#ff6666'))
+                        return
+                self.update_status("Подключение успешно", get_color_from_hex('#66cc66'))
             except Exception as e:
-                Clock.schedule_once(lambda dt: self.update_status(f"Ошибка: {str(e)[:50]}", get_color_from_hex('#ff6666')))
+                self.update_status(f"Ошибка: {str(e)[:50]}", get_color_from_hex('#ff6666'))
         threading.Thread(target=test).start()
         
     def update_status(self, text, color):
+        Clock.schedule_once(lambda dt: self._update_status(text, color))
+        
+    def _update_status(self, text, color):
         self.status_label.text = text
         self.status_label.color = color
         

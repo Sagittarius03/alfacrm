@@ -9,15 +9,16 @@ class ConfigManager:
         self.config = self.load_config()
         
     def load_config(self):
-        """Загрузка конфигурации"""
         default_config = {
-            'site_url': 'https://rtschool.s20.online',
-            'username': '',
-            'password': '',
+            'profiles': [
+                {
+                    'site_url': 'https://rtschool.s20.online',
+                    'username': '',
+                    'password': '',
+                    'crm_type': 'rts'
+                }
+            ],
             'check_interval_hours': 1,
-            'chromedriver_path': '',
-            'theme': 'dark',
-            'notifications_enabled': True,
             'auto_start': False
         }
         
@@ -26,7 +27,9 @@ class ConfigManager:
                 with open(self.config_file, 'r', encoding='utf-8') as f:
                     config = json.load(f)
                     # Обновляем дефолтные значения
-                    for key in default_config:
+                    if 'profiles' not in config:
+                        config['profiles'] = default_config['profiles']
+                    for key in ['check_interval_hours', 'auto_start']:
                         if key not in config:
                             config[key] = default_config[key]
                     return config
@@ -38,10 +41,8 @@ class ConfigManager:
             return default_config
             
     def save_config(self, config=None):
-        """Сохранение конфигурации"""
         if config is None:
             config = self.config
-            
         try:
             with open(self.config_file, 'w', encoding='utf-8') as f:
                 json.dump(config, f, indent=4, ensure_ascii=False)
@@ -51,8 +52,6 @@ class ConfigManager:
             return False
             
     def get(self, key, default=None):
-        """Получение значения настройки"""
-        # Сначала проверяем в БД
         if self.db:
             value = self.db.get_setting(key)
             if value is not None:
@@ -60,11 +59,16 @@ class ConfigManager:
         return self.config.get(key, default)
         
     def set(self, key, value):
-        """Установка значения настройки"""
         self.config[key] = value
-        
-        # Сохраняем в БД
         if self.db:
             self.db.set_setting(key, str(value))
-            
+        self.save_config()
+    
+    def get_profiles(self):
+        """Получение списка профилей"""
+        return self.config.get('profiles', [])
+    
+    def save_profiles(self, profiles):
+        """Сохранение списка профилей"""
+        self.config['profiles'] = profiles
         self.save_config()

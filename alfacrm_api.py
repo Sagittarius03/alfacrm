@@ -13,8 +13,9 @@ import threading
 import requests
 
 class AlfaCRMApi:
-    def __init__(self, config):
+    def __init__(self, config, crm_type='rts'):
         self.config = config
+        self.crm_type = crm_type
         self.driver = None
         self.is_logged_in = False
         self.lock = threading.Lock()
@@ -54,7 +55,7 @@ class AlfaCRMApi:
         try:
             saved_cookies = self.db.get_session_cookies() if hasattr(self, 'db') else []
             if saved_cookies:
-                print("Попытка восстановления сессии...")
+                print(f"Попытка восстановления сессии для {self.crm_type}...")
                 if not self.driver:
                     self.setup_driver()
                 self.driver.get(self.config['site_url'])
@@ -70,14 +71,14 @@ class AlfaCRMApi:
                 time.sleep(2)
                 if self.check_login_success():
                     self.is_logged_in = True
-                    print("Сессия восстановлена успешно")
+                    print(f"Сессия восстановлена для {self.crm_type}")
                     return True
                 else:
-                    print("Сохранённая сессия недействительна, выполняем полный вход")
+                    print(f"Сохранённая сессия для {self.crm_type} недействительна, выполняем полный вход")
             
             if not self.driver:
                 self.setup_driver()
-            print(f"Логин на {self.config['site_url']}")
+            print(f"Логин на {self.config['site_url']} ({self.crm_type})")
             self.driver.get(self.config['site_url'])
             WebDriverWait(self.driver, 10).until(
                 EC.presence_of_element_located((By.ID, "login-form"))
@@ -89,7 +90,6 @@ class AlfaCRMApi:
             password_field.clear()
             password_field.send_keys(self.config['password'])
             
-            # Устанавливаем галочку "Запомнить меня"
             try:
                 remember_me = self.driver.find_element(By.ID, "loginform-rememberme")
                 if not remember_me.is_selected():
@@ -102,35 +102,36 @@ class AlfaCRMApi:
             time.sleep(3)
             
             if self.check_2fa_required():
-                print("Требуется код подтверждения")
+                print(f"Требуется код подтверждения для {self.crm_type}")
                 code = self.get_verification_code()
                 if not code:
                     print("Введите код вручную:")
                     code = input("Код: ").strip()
                 if code and self.enter_2fa_code(code):
                     self.is_logged_in = True
-                    print("Успешный вход с 2FA")
+                    print(f"Успешный вход с 2FA для {self.crm_type}")
                 else:
                     print("Ошибка ввода кода")
                     return False
             else:
                 if self.check_login_success():
                     self.is_logged_in = True
-                    print("Успешный вход")
+                    print(f"Успешный вход для {self.crm_type}")
                 else:
-                    print("Не удалось войти")
+                    print(f"Не удалось войти для {self.crm_type}")
                     return False
             
             if self.is_logged_in and hasattr(self, 'db'):
                 cookies = self.driver.get_cookies()
                 self.db.save_session_cookies(cookies)
-                print("Сессия сохранена")
+                print(f"Сессия сохранена для {self.crm_type}")
             
             return self.is_logged_in
             
         except Exception as e:
-            print(f"Ошибка при входе: {e}")
-            return False        
+            print(f"Ошибка при входе для {self.crm_type}: {e}")
+            return False
+    
     def check_2fa_required(self):
         try:
             selectors = [
@@ -318,10 +319,10 @@ class AlfaCRMApi:
                 lesson = self.parse_api_lesson(lesson_data)
                 if lesson:
                     lessons.append(lesson)
-            print(f"Найдено {len(lessons)} уроков через API")
+            print(f"Найдено {len(lessons)} уроков через API для {self.crm_type}")
             return lessons
         except Exception as e:
-            print(f"Ошибка получения уроков через API: {e}")
+            print(f"Ошибка получения уроков через API для {self.crm_type}: {e}")
             return self.get_lessons_from_page(start_date, end_date)
             
     def get_lessons_from_page(self, start_date=None, end_date=None):
@@ -360,9 +361,9 @@ class AlfaCRMApi:
             type_map = {1: 'individual', 2: 'group', 3: 'trial', 4: 'tech_support'}
             lesson_type = type_map.get(data.get('type'), 'unknown')
             
-            # Извлечение customer_id
             customer_id = None
             customers = data.get('customers', {})
+            print(f"Урок {data.get('id')}: status={status}, type={lesson_type}, crm_type={self.crm_type}")
             if isinstance(customers, dict):
                 customer_ids = list(customers.keys())
                 customer_id = customer_ids[0] if customer_ids else None
@@ -384,9 +385,8 @@ class AlfaCRMApi:
             elif isinstance(customers, list):
                 client_names = [c.get('name', '') for c in customers if isinstance(c, dict)]
             
-            # Время: начало, длительность, конец
             start_time = data.get('start', '')
-            duration = data.get('duration', 0)  # в минутах
+            duration = data.get('duration', 0)
             time_start_str = ''
             time_end_str = ''
             if start_time:
@@ -403,10 +403,10 @@ class AlfaCRMApi:
                     time_str = start_time[:5] if len(start_time) >= 5 else ''
             else:
                 time_str = ''
-            
+                
             lesson = {
                 'id': str(data.get('id', '')),
-                'time': time_str,  # диапазон или только начало
+                'time': time_str,
                 'time_start': time_start_str,
                 'time_end': time_end_str,
                 'duration': duration,
@@ -422,12 +422,14 @@ class AlfaCRMApi:
                 'date': data.get('date', ''),
                 'timestamp': datetime.now().isoformat(),
                 'customer_id': customer_id,
+                'crm_type': self.crm_type,
+                'site_url': self.config['site_url'],
             }
             return lesson
         except Exception as e:
             print(f"Ошибка парсинга API урока: {e}")
-            return None       
-    
+            return None
+        
     def parse_page_lesson(self, element, date):
         try:
             time_elem = element.select_one('.fc-time')

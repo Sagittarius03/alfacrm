@@ -19,13 +19,29 @@ class Database:
             conn.close()
             
     def init_db(self):
-        """Инициализация базы данных"""
         with self.get_connection() as conn:
             cursor = conn.cursor()
-            
-            # ... существующие таблицы ...
-            
-            # Таблица для хранения сессий
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS lessons (
+                    id TEXT PRIMARY KEY,
+                    date TEXT,
+                    time TEXT,
+                    client TEXT,
+                    subject TEXT,
+                    comment TEXT,
+                    status TEXT,
+                    link TEXT,
+                    teacher TEXT,
+                    room TEXT,
+                    type TEXT,
+                    is_occupied INTEGER,
+                    customer_id TEXT,
+                    crm_type TEXT,
+                    site_url TEXT,
+                    timestamp TEXT,
+                    last_updated TEXT
+                )
+            ''')
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS sessions (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -35,8 +51,6 @@ class Database:
                     updated_at TEXT
                 )
             ''')
-            
-            # Таблица для хранения cookies
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS cookies (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -50,26 +64,21 @@ class Database:
                     created_at TEXT
                 )
             ''')
-            
             cursor.execute('''
-            CREATE TABLE IF NOT EXISTS lessons (
-                id TEXT PRIMARY KEY,
-                date TEXT,
-                time TEXT,
-                client TEXT,
-                subject TEXT,
-                comment TEXT,
-                status TEXT,
-                link TEXT,
-                teacher TEXT,
-                room TEXT,
-                type TEXT,
-                is_occupied INTEGER,
-                customer_id TEXT,
-                timestamp TEXT,
-                last_updated TEXT
-            )
-        ''')
+                CREATE TABLE IF NOT EXISTS notifications (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    lesson_id TEXT,
+                    message TEXT,
+                    timestamp TEXT,
+                    is_read INTEGER DEFAULT 0
+                )
+            ''')
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS settings (
+                    key TEXT PRIMARY KEY,
+                    value TEXT
+                )
+            ''')
     
     def save_session_cookies(self, cookies):
         with self.get_connection() as conn:
@@ -116,35 +125,15 @@ class Database:
                 cookies.append(cookie)
             return cookies
     
-    def save_session_data(self, name, value):
-        """Сохранение данных сессии"""
-        with self.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute('''
-                INSERT OR REPLACE INTO sessions (name, value, updated_at)
-                VALUES (?, ?, ?)
-            ''', (name, value, datetime.now().isoformat()))
-            conn.commit()
-
-    def get_session_data(self, name):
-        """Получение данных сессии"""
-        with self.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute('SELECT value FROM sessions WHERE name = ?', (name,))
-            row = cursor.fetchone()
-            return row['value'] if row else None
-            
     def save_lessons(self, lessons):
-        """Сохранение уроков"""
         with self.get_connection() as conn:
             cursor = conn.cursor()
             now = datetime.now().isoformat()
-            
             for lesson in lessons:
                 cursor.execute('''
                     INSERT OR REPLACE INTO lessons 
-                    (id, date, time, client, subject, comment, status, link, teacher, room, type, is_occupied, customer_id, timestamp, last_updated)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    (id, date, time, client, subject, comment, status, link, teacher, room, type, is_occupied, customer_id, crm_type, site_url, timestamp, last_updated)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ''', (
                     lesson.get('id', ''),
                     lesson.get('date', ''),
@@ -159,69 +148,44 @@ class Database:
                     lesson.get('type', ''),
                     1 if lesson.get('is_occupied', False) else 0,
                     lesson.get('customer_id', ''),
+                    lesson.get('crm_type', ''),
+                    lesson.get('site_url', ''),
                     lesson.get('timestamp', now),
                     now
                 ))
-                
+    
     def get_lessons_for_date(self, date):
-        """Получение уроков на дату"""
         with self.get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute('''
-                SELECT * FROM lessons WHERE date = ?
-                ORDER BY time
-            ''', (date,))
+            cursor.execute('SELECT * FROM lessons WHERE date = ? ORDER BY time', (date,))
             return [dict(row) for row in cursor.fetchall()]
             
     def get_lessons_for_period(self, start_date, end_date):
-        """Получение уроков за период"""
         try:
             with self.get_connection() as conn:
-                    cursor = conn.cursor()
-                    cursor.execute('''
-                        SELECT * FROM lessons 
-                        WHERE date BETWEEN ? AND ?
-                        ORDER BY date, time
-                    ''', (start_date, end_date))
-                    return [dict(row) for row in cursor.fetchall()]
+                cursor = conn.cursor()
+                cursor.execute('SELECT * FROM lessons WHERE date BETWEEN ? AND ? ORDER BY date, time', (start_date, end_date))
+                return [dict(row) for row in cursor.fetchall()]
         except Exception as e:
             print(f"Ошибка получения уроков get_lessons_for_period: {e}")
             return []
 
     def get_changed_lessons(self, new_lessons):
-        """Сравнение и получение измененных уроков"""
         changed = []
-        
         for new_lesson in new_lessons:
             old = self.get_lesson(new_lesson.get('id'))
-            
             if not old:
-                # Новый урок
-                changed.append({
-                    'type': 'new',
-                    'lesson': new_lesson
-                })
+                changed.append({'type': 'new', 'lesson': new_lesson})
             else:
-                # Проверка изменений
                 changes = {}
                 for key in ['time', 'client', 'subject', 'comment', 'status', 'teacher', 'room']:
                     if old.get(key) != new_lesson.get(key):
-                        changes[key] = {
-                            'old': old.get(key),
-                            'new': new_lesson.get(key)
-                        }
-                
+                        changes[key] = {'old': old.get(key), 'new': new_lesson.get(key)}
                 if changes:
-                    changed.append({
-                        'type': 'updated',
-                        'lesson': new_lesson,
-                        'changes': changes
-                    })
-                    
+                    changed.append({'type': 'updated', 'lesson': new_lesson, 'changes': changes})
         return changed
         
     def get_lesson(self, lesson_id):
-        """Получение урока по ID"""
         with self.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute('SELECT * FROM lessons WHERE id = ?', (lesson_id,))
@@ -229,43 +193,27 @@ class Database:
             return dict(row) if row else None
             
     def save_notification(self, notification):
-        """Сохранение уведомления"""
         with self.get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute('''
-                INSERT INTO notifications (lesson_id, message, timestamp)
-                VALUES (?, ?, ?)
-            ''', (
-                notification.get('lesson_id', ''),
-                notification.get('message', ''),
-                datetime.now().isoformat()
-            ))
+            cursor.execute('INSERT INTO notifications (lesson_id, message, timestamp) VALUES (?, ?, ?)',
+                           (notification.get('lesson_id', ''), notification.get('message', ''), datetime.now().isoformat()))
             
     def get_notifications(self, limit=50):
-        """Получение уведомлений"""
         try:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
-                cursor.execute('''
-                    SELECT * FROM notifications 
-                    ORDER BY timestamp DESC 
-                    LIMIT ?
-                ''', (limit,))
+                cursor.execute('SELECT * FROM notifications ORDER BY timestamp DESC LIMIT ?', (limit,))
                 return [dict(row) for row in cursor.fetchall()]
         except Exception as e:
             print(f"Ошибка получения уведомлений get_notifications: {e}")
             return []
             
     def mark_notification_read(self, notification_id):
-        """Отметить уведомление как прочитанное"""
         with self.get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute('''
-                UPDATE notifications SET is_read = 1 WHERE id = ?
-            ''', (notification_id,))
+            cursor.execute('UPDATE notifications SET is_read = 1 WHERE id = ?', (notification_id,))
             
     def get_setting(self, key, default=None):
-        """Получение настройки"""
         try:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
@@ -277,10 +225,6 @@ class Database:
             return default
             
     def set_setting(self, key, value):
-        """Сохранение настройки"""
         with self.get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute('''
-                INSERT OR REPLACE INTO settings (key, value)
-                VALUES (?, ?)
-            ''', (key, value))
+            cursor.execute('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)', (key, value))
