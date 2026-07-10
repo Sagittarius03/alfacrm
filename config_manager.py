@@ -26,7 +26,6 @@ class ConfigManager:
             try:
                 with open(self.config_file, 'r', encoding='utf-8') as f:
                     config = json.load(f)
-                    # Обновляем дефолтные значения
                     if 'profiles' not in config:
                         config['profiles'] = default_config['profiles']
                     for key in ['check_interval_hours', 'auto_start']:
@@ -65,10 +64,8 @@ class ConfigManager:
         self.save_config()
     
     def get_profiles(self):
-        """Получение списка профилей"""
         return self.config.get('profiles', [])
     
     def save_profiles(self, profiles):
-        """Сохранение списка профилей"""
         self.config['profiles'] = profiles
         self.save_config()

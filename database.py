@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import sqlite3
 import json
 from datetime import datetime, timedelta
@@ -51,6 +52,7 @@ class Database:
                     updated_at TEXT
                 )
             ''')
+            # Добавлен столбец profile для хранения кук каждого профиля
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS cookies (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -61,6 +63,7 @@ class Database:
                     expires TEXT,
                     is_http_only INTEGER,
                     is_secure INTEGER,
+                    profile TEXT,
                     created_at TEXT
                 )
             ''')
@@ -80,10 +83,11 @@ class Database:
                 )
             ''')
     
-    def save_session_cookies(self, cookies):
+    def save_session_cookies(self, cookies, profile='rts'):
         with self.get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute('DELETE FROM cookies')
+            # Удаляем старые куки для этого профиля
+            cursor.execute('DELETE FROM cookies WHERE profile = ?', (profile,))
             for cookie in cookies:
                 expiry = cookie.get('expiry')
                 if expiry:
@@ -92,8 +96,8 @@ class Database:
                     except:
                         expiry = None
                 cursor.execute('''
-                    INSERT INTO cookies (name, value, domain, path, expires, is_http_only, is_secure, created_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    INSERT INTO cookies (name, value, domain, path, expires, is_http_only, is_secure, profile, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ''', (
                     cookie.get('name', ''),
                     cookie.get('value', ''),
@@ -102,14 +106,15 @@ class Database:
                     expiry,
                     1 if cookie.get('httpOnly', False) else 0,
                     1 if cookie.get('secure', False) else 0,
+                    profile,
                     datetime.now().isoformat()
                 ))
             conn.commit()
 
-    def get_session_cookies(self):
+    def get_session_cookies(self, profile='rts'):
         with self.get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute('SELECT * FROM cookies')
+            cursor.execute('SELECT * FROM cookies WHERE profile = ?', (profile,))
             cookies = []
             for row in cursor.fetchall():
                 cookie = {

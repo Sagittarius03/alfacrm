@@ -1,32 +1,21 @@
-<html lang="en"><head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-        <meta name="description" content="">
-        <meta name="msapplication-config" content="browserconfig.xml">
-        <meta name="robots" content="noindex,nofollow">
-        <meta name="mobile-web-app-capable" content="yes">
-        <meta name="apple-mobile-web-app-capable" content="yes">
-        <meta name="apple-mobile-web-app-title" content="yes">
-        <meta name="apple-mobile-web-app-status-bar-style" content="yes">
-        <meta name="”theme-color”" content="”#1c84c6”">
-        <meta name="”msapplication-TileColor”" content="”#000000&quot;">
-        <meta name="viewport" content="initial-scale=1.0, maximum-scale=1.0">
+<html lang="ru"><head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+    <meta name="msapplication-config" content="browserconfig.xml">
+    <link rel="icon" type="image/png" href="//cdn.alfacrm.pro/favicon-48.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="//cdn.alfacrm.pro/favicon-16.png">
+    <link rel="icon" type="image/png" sizes="32x32" href="//cdn.alfacrm.pro/favicon-32.png">
+    <link rel="icon" type="image/png" sizes="48x48" href="//cdn.alfacrm.pro/favicon-48.png">
+    <link rel="icon" type="image/png" sizes="128x128" href="//cdn.alfacrm.pro/favicon-128.png">
+    <link rel="icon" type="image/png" sizes="192x192" href="//cdn.alfacrm.pro/favicon-192.png">
+    <link rel="apple-touch-icon" href="//cdn.alfacrm.pro/favicon-48.png">
+    <link rel="manifest" href="/manifest.json">
 
-
-        <link rel="icon" type="image/png" href="//cdn.alfacrm.pro/favicon-48.png">
-        <link rel="icon" type="image/png" sizes="16x16" href="//cdn.alfacrm.pro/favicon-16.png">
-        <link rel="icon" type="image/png" sizes="32x32" href="//cdn.alfacrm.pro/favicon-32.png">
-        <link rel="icon" type="image/png" sizes="48x48" href="//cdn.alfacrm.pro/favicon-48.png">
-        <link rel="icon" type="image/png" sizes="128x128" href="//cdn.alfacrm.pro/favicon-128.png">
-        <link rel="icon" type="image/png" sizes="192x192" href="//cdn.alfacrm.pro/favicon-192.png">
-        <link rel="apple-touch-icon" href="//cdn.alfacrm.pro/favicon-48.png">
-        <link rel="manifest" href="/manifest.webmanifest">
-        <link rel="manifest" href="/manifest.json">
-
-        <meta name="csrf-param" content="_csrf">
-<meta name="csrf-token" content="033jnjmisK6_TaxjnISw7wSCyS0ahx5zN6k_K44dOaWQCrqpaufp-eY6-TLy7sOdcNeNT1-wWDJD63NE2FRd4Q==">
-        <title>Login to personal account | ALFACRM</title>
-        <link href="//cdn.alfacrm.pro/bootstrap/min.css" rel="stylesheet">
+    <meta name="csrf-param" content="_csrf">
+<meta name="csrf-token" content="dsA6o-5xXBhiWQtDSAyHPo0OTCFn3jqkjSC3UI6OROslhlTOoAgZKQEMYgZ5X-hTviN-bCvuV8_faeAc-OwW2Q==">
+    <title>Мои данные | ALFACRM</title>
+    <link href="//cdn.alfacrm.pro/jquery-ui.min.css" rel="stylesheet">
+<link href="//cdn.alfacrm.pro/bootstrap/min.css" rel="stylesheet">
 <link href="//cdn.alfacrm.pro/datapicker/datepicker3.min.css" rel="stylesheet">
 <link href="//cdn.alfacrm.pro/fa/fa.min.css" rel="stylesheet">
 <link href="//cdn.alfacrm.pro/flaticon/flaticon.css" rel="stylesheet">
@@ -38,49 +27,1288 @@
 <link href="//cdn.alfacrm.pro/colorpicker/spectrum.min.css" rel="stylesheet">
 <link href="//cdn.alfacrm.pro/fa/animate.css" rel="stylesheet">
 <link href="//cdn.alfacrm.pro/tagsinput/bootstrap-tagsinput.css" rel="stylesheet">
-<link href="//cdn.alfacrm.pro/crm.custom193.css?202607080731" rel="stylesheet">
+<link href="//cdn.alfacrm.pro/crm.custom193.css?202607091255" rel="stylesheet">
 <link href="//cdn.alfacrm.pro/datetime-picker/bootstrap-datetimepicker.css" rel="stylesheet">
-<link href="/driver.js/driver.css" rel="stylesheet">    </head>
-    <body class="gray-bg mini-navbar">
-                    
-<style>
-    .remember-block {
-        margin-bottom: 15px;
+<link href="/driver.js/driver.css" rel="stylesheet">
+<style>#notifications-panel {
+    position: fixed;
+    z-index: 1000;
+    left: 0;
+    max-width: 222px;
+    padding-left: 2px;
+    bottom: 0;
+    background: rgba(238, 238, 238, 0);
+}
+#notifications-panel > .wrapper {
+    padding: 0;
+}
+#notifications-panel .float-left {
+    float: left;
+}
+#notifications-panel .notify-card {
+    width: 220px;
+    overflow-x: hidden;
+    position: relative;
+
+    background: #fff;
+    border-radius: 1px;
+    border-style: solid;
+    border-width: 1px 1px 1px 4px;
+}
+#notifications-panel .notify-name,
+#notifications-panel .notify-name-url {
+    display: inline-block;
+    height: 1.3em;
+    overflow: hidden;
+    max-width: 155px;
+}
+#notifications-panel .notify-description {
+    font-size: 12px;
+}
+
+#notifications-panel .notify-card.alerting {
+    border-color: #FFA500;
+}
+    #notifications-panel .notify-card.alerting .fa {
+        color: #FFA500;
     }
 
-    .remember-block label {
-        font-weight: normal;
+#notifications-panel .notify-card.active {
+    border-color: #1ab394;
+}
+    #notifications-panel .notify-card.active .fa {
+        color: #1ab394;
+    }
+
+#notifications-panel .notify-card.released {
+    border-color: #1c84c6;
+}
+    #notifications-panel .notify-card.released .fa {
+        color: #1c84c6;
+    }
+
+#notifications-panel .notify-card.missed {
+    border-color: #ed5565;
+}
+    #notifications-panel .notify-card.missed .fa {
+        color: #ed5565;
+    }
+#notifications-panel .notify-card .close {
+    position: absolute;
+    top: 5px;
+    right: 5px;
+}
+#notifications-panel .notify-status-name {
+    font-size: 11px;
+}
+
+@media (max-width: 768px) {
+    #notifications-panel {
+        display: none !important;
+    }
+}</style>
+<style>#ws-tasks-panel {
+    position: absolute;
+    z-index: 1000;
+    right: 170px;
+    max-width: 222px;
+    padding-left: 2px;
+    top: 0;
+    background: rgba(238, 238, 238, 0);
+}
+#ws-tasks-panel > .wrapper {
+    padding: 0;
+}
+#ws-tasks-panel .float-left {
+    float: right;
+}
+#ws-tasks-panel .task-card {
+    width: 220px;
+    overflow-x: hidden;
+    position: relative;
+
+    background: #fff;    
+    border-radius: 1px;
+    border-style: solid;
+    border-width: 1px 1px 1px 4px;
+}
+#ws-tasks-panel .task-name,
+#ws-tasks-panel .task-name-url {
+    display: inline-block;
+    height: 1.3em;
+    overflow: hidden;
+    max-width: 155px;
+}
+#ws-tasks-panel .task-phone {
+    font-size: 12px;
+}
+
+#ws-tasks-panel .task-card.alerting {
+    border-color: #FFA500;
+}
+    #ws-tasks-panel .task-card.alerting .fa {
+        color: #FFA500;
+    }
+
+#ws-tasks-panel .task-card.active {
+    border-color: #1ab394;
+}
+    #ws-tasks-panel .task-card.active .fa {
+        color: #1ab394;
+    }
+
+#ws-tasks-panel .task-card.released {
+    border-color: #1c84c6;
+}
+    #ws-tasks-panel .task-card.released .fa {
+        color: #1c84c6;
+    }
+
+#ws-tasks-panel .task-card.missed {
+    border-color: #ed5565;
+}
+    #ws-tasks-panel .task-card.missed .fa {
+        color: #ed5565;
+    }
+#ws-tasks-panel .task-card .close {
+    position: absolute;
+    top: 5px;
+    right: 5px;
+}
+#ws-tasks-panel .task-status-name {
+    font-size: 11px;
+}
+#ws-tasks-panel .task-title {
+    cursor: pointer;
+}
+#ws-tasks-panel .shortly {
+    text-overflow: ellipsis;
+    width: 190px;
+    overflow: hidden;
+    white-space: nowrap;
+}
+#ws-tasks-panel .blue {
+    border-color: #1d84c6;
+}
+
+#ws-tasks-panel .red {
+    border-color: #ed5565;
+}
+
+
+#ws-tasks-panel .close-all {
+    text-align: center;
+}
+
+
+@media (max-width: 767px) {
+    #ws-tasks-panel {
+        display: none !important;
+    }
+}</style>    <style>
+        .ui-btn {
+            line-height: 16.8px;
+        }
+
+        .notification-close {
+            line-height: inherit;
+            position: absolute;
+            right: 10px;
+        }
+
+        .notification-text {
+            margin: 0;
+        }
+
+        .notification-container {
+            text-align: center;
+            padding: 5px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            gap: 10px;
+        }
+
+        .notification-blue {
+            background-color: #D7ECFC;
+            color: #2E6E9C;
+        }
+
+        .notification-orange {
+            background-color: #FFE5D0;
+        }
+
+        :root {
+            --ui-blue-500: #205edc;
+            --ui-blue-600: #194ba8;
+            --ui-blue-400: #2b70f5;
+            --ui-blue-50: #e7effb;
+            --ui-white: #fff;
+            --ui-gray-700: #333;
+            --ui-gray-800: #222;
+            --ui-gray-550: #888;
+            --ui-gray-200: #f1f1f1;
+            --ui-gray-100: #f9f9f9;
+            --ui-red-500: #ee1d52;
+            --ui-red-600: #c40041;
+            --ui-red-300: #fd8da7;
+            --ui-transition: 0.3s;
+        }
+
+        /* Common */
+        .ui-btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 4px;
+            border-radius: 8px;
+            border: none;
+            font-weight: 500;
+            cursor: pointer;
+            transition: background-color var(--ui-transition), color var(--ui-transition), border var(--ui-transition);
+            position: relative;
+            outline: none;
+        }
+
+        /* Sizes */
+        .ui-btn--small {
+            min-height: 32px;
+            font-size: 10px;
+            padding: 5px 12px;
+        }
+
+        .ui-btn--medium {
+            min-height: 36px;
+            font-size: 16px;
+            padding: 9px 16px;
+        }
+
+        .ui-btn--large {
+            min-height: 40px;
+            font-size: 18px;
+            padding: 11px 16px;
+        }
+
+        .ui-btn--xl {
+            min-height: 56px;
+            font-size: 20px;
+            padding: 16px 24px;
+        }
+
+        .ui-btn:disabled {
+            cursor: not-allowed;
+            opacity: 0.6;
+        }
+
+        /* Variants */
+        .ui-btn--primary {
+            background: var(--ui-blue-500);
+            color: var(--ui-white);
+        }
+
+        .ui-btn--primary:hover:not(:disabled) {
+            background: var(--ui-blue-600);
+            color: var(--ui-white);
+        }
+
+        .ui-btn--primary:active:not(:disabled) {
+            background: var(--ui-blue-400);
+            color: var(--ui-white);
+        }
+
+        /* Secondary */
+        .ui-btn--secondary {
+            background: var(--ui-white);
+            color: var(--ui-blue-500);
+            border: 1px solid var(--ui-blue-400);
+        }
+
+        .ui-btn--secondary:hover:not(:disabled) {
+            background: var(--ui-blue-50);
+        }
+
+        .ui-btn--secondary:active:not(:disabled) {
+            border-color: var(--ui-blue-600);
+        }
+
+        /* Danger */
+        .ui-btn--danger {
+            background: var(--ui-red-500);
+            color: var(--ui-white);
+        }
+
+        .ui-btn--danger:hover:not(:disabled) {
+            background: var(--ui-red-600);
+        }
+
+        /* Link Blue */
+        .ui-btn--linkBlue {
+            background: transparent;
+            color: var(--ui-blue-500);
+            border: none;
+            padding: 0;
+            min-height: unset;
+            font-size: inherit;
+        }
+
+        .ui-btn--linkBlue:hover:not(:disabled) {
+            color: var(--ui-blue-600);
+        }
+
+        .ui-btn--linkBlue:active:not(:disabled) {
+            color: var(--ui-blue-400);
+        }
+
+        /* Иконки */
+        .ui-btn__icon {
+            display: inline-flex;
+            width: 20px;
+            height: 20px;
+            fill: currentColor;
+            pointer-events: none;
+        }
+
+        .ui-btn--large .ui-btn__icon,
+        .ui-btn--xl .ui-btn__icon {
+            width: 24px;
+            height: 24px;
+        }
+
+        .ui-btn--medium .ui-btn__icon,
+        .ui-btn--small .ui-btn__icon {
+            width: 16px;
+            height: 16px;
+        }
+
+        .ui-btn__icon--left {
+            margin-right: 4px;
+        }
+
+        .ui-btn__icon--right {
+            margin-left: 4px;
+        }
+    </style>
+</head>
+<body class="mini-navbar">
+
+
+
+<script>
+    function familiarizeLicenseNotification() {
+        $('#license-ends').hide();
+
+        $.getJSON(
+            '/common/1/ajax/familiarize-license-notification',
+            {},
+            function (data) {
+            }
+        );
+    }
+
+    function familiarizeCustomersNotification() {
+        $('#customers-exceeded').hide();
+
+        $.getJSON(
+            '/common/1/ajax/familiarize-customers-notification',
+            {},
+            function (data) {
+            }
+        );
+    }
+</script>
+
+<div class="border-bottom no-padding m-b-sm white-bg">
+    <nav class="navbar no-margins no-padding" role="navigation">
+        <ul class="nav navbar-top-links no-margins no-padding">
+            <li class="pull-left border-right hidden-xs nav-action">
+                <a href="#" title="Свернуть / развернуть меню" class="crm-menu-toggle" style="padding-top: 5px">
+                    <big class="fa-2x">
+                        <i class="ion-navicon"></i>
+                    </big>
+                </a>
+            </li>
+            <li class="border-right alfa-header text-center pull-left no-padding no-margins hidden-xs">
+                <a href="/" style="padding-top: 12px">
+                    <img src="https://alfa.s20.online/media/crop?url=uploads/b97b9e625455f9b891a4f9e5bc488494.png&amp;width=1000&amp;height=200" alt="ALFACRM" style="width: 140px; height: 30px">                </a>
+            </li>
+            <li class="dropdown pull-left border-right visible-xs nav-action">
+                <a aria-expanded="false" role="button" href="#" class="dropdown-toggle font-noraml" data-toggle="dropdown" title="Свернуть / развернуть меню" style="padding-top: 5px">
+                    <big class="fa-2x m-l-xxs m-r-xxs">
+                        <i class="ion-navicon"></i>
+                    </big>
+                </a>
+                <ul role="menu" class="dropdown-menu">
+                    
+<style>
+    .nav.metismenu li .badge, .nav.metismenu li .label {
+        float: right;
+        margin: 7px 4px 0 0;
+        position: relative;
+        z-index: 2;
+    }
+
+    .nav-action li a {
+        clear: none;
+    }
+
+    .nav-action li {
+        display: block;
+        clear: both;
+    }
+
+    .nav-action li .badge, .nav-action li .label {
+        float: right;
+        margin: 7px 7px 0 0;
+        position: relative;
+        z-index: 2;
     }
 </style>
 
-<div class="middle-box text-center loginscreen animated fadeInDown">
-    <p class="text-center">
-        <a href="https://rts.school/" target="_blank"><img src="https://alfa.s20.online/media/crop?url=uploads/fdaee51dabd68bb3964cfa3d68b6a196.png&amp;width=1000&amp;height=200" alt="" style="width: 210px; height: 45px"></a>    </p>
+    <li class="active">
+                        <a href="/teacher/1/profile/index">
+            <i class="ion-person"></i>
+            Мой профиль                    </a>
+    </li>
+    <li>
+                        <a href="/teacher/1/calendar/index">
+            <i class="ion-calendar"></i>
+            Уроки                    </a>
+    </li>
+    <li>
+                        <a href="/teacher/1/agile/index">
+            <i class="ion-clipboard"></i>
+            Задачи                    </a>
+    </li>
+    <li>
+                        <a href="/teacher/1/customer/index">
+            <i class="ion-person"></i>
+            Клиенты                    </a>
+    </li>
+    <li>
+                        <a href="/teacher/1/group/index">
+            <i class="ion-person-stalker"></i>
+            Группы                    </a>
+    </li>
+    <li>
+                <strong class="label label-default" title="0 новые публикации" onclick="location.href=&quot;/teacher/1/informer/index&quot;; return true;" style="cursor: pointer"></strong>        <a href="/teacher/1/informer/index">
+            <i class="ion-ios-paper"></i>
+            Информер                    </a>
+    </li>
 
-    <h3>Login to personal account</h3>
+                </ul>
+            </li>
 
-    <div class="tabs-container">
-                <div class="tab-content">
-            <div id="tab-1" class="tab-pane active">
-                <form id="login-form" class="form-horizontal m-t" action="https://rtschool.s20.online/login?backUrl=https%3A%2F%2Frtschool.s20.online%2F%3F" method="post">
-<input type="hidden" name="_csrf" value="033jnjmisK6_TaxjnISw7wSCyS0ahx5zN6k_K44dOaWQCrqpaufp-eY6-TLy7sOdcNeNT1-wWDJD63NE2FRd4Q=="><!--                --><!--                <ul>-->
-<!--                    --><!--                        <li>--><!--</li>-->
-<!--                    --><!--                </ul>-->
-<!--                -->                
-                                                            <input type="hidden" id="loginform-username" name="LoginForm[username]" value="lev.butakov.03@mail.ru">                        <input type="hidden" id="loginform-password" name="LoginForm[password]" value="Hc7iYwdajT">                        <input type="hidden" id="loginform-rememberme" name="LoginForm[rememberMe]" value="0">                        <input type="hidden" id="login2faform-rememberme" name="Login2FAForm[rememberMe]" value="1">                        <div class="form-group field-login2faform-code">
-<div class="col-lg-12"><input type="text" id="login2faform-code" class="form-control" name="Login2FAForm[code]" placeholder="Code" autofocus=""></div><div class="col-lg-12"><p class="help-block help-block-error"></p></div>
-</div>                        <div style="text-align: left;" class="mb-3">
-                            We sent you a code for authorization                        </div>
-                        <br>
-                        <button type="submit" class="btn btn-success block full-width m-b" name="login-button"><i class="ion-log-in"></i> Log in to the dashboard</button>                        </form>                                                </div>
-                    </div>
+            
+
+            
+            
+            
+            
+            
+            
+                                    
+
+            
+            
+            
+<div id="notifications-panel" style="display: none;">
+    <div class="wrapper no-paddings m-t-xs"></div>
+    <div id="alfa-crm-chat-notify-card" onclick="" class="notify-card float-left m-r-xs m-b-xs p-xxs" style="display: none;">
+        <button type="button" class="close" aria-label="Close"><span aria-hidden="true">×</span></button>
+        <div class="avatar">
+            <a href="" class="float-left m-r-sm m-t-xs">
+                <i class="fa fa-light fa-envelope fa-2x"></i>
+            </a>
+            <div class="media-body font-bold notify-name-url"><a href="#"></a></div>
+            <div class="media-body font-bold notify-url">
+                Новое сообщение            </div>
+            <div class="media-body notify-description"></div>
+            <div class="media-body notify-status-name text-muted text-center"></div>
+        </div>
     </div>
 </div>
 
-        <script src="//cdn.alfacrm.pro/jquery.min.js"></script>
+            
+            <li class="pull-left hidden-xs crm-fulltext-search" data-url="/teacher/1/autocomplete/client-list">
+        <input type="text" class="input-sm ui-autocomplete-input" style="width: 150px; border: none; background: white; margin-top: 10px" placeholder="Поиск клиента" autocomplete="off">
+</li>
+
+                            <li class="dropdown dropdown-hover profile font-noraml pull-right">
+                    <a href="#" data-toggle="dropdown" class="profile-link" style="padding: 5px 10px">
+                                <span class="hidden-xs">
+                                    Бутаков                                </span>
+                        <img alt="image" class="img img-circle img-thumbnail m-l-xs" src="/media/crop?url=uploads/1771225659IMG_20260214_091011.jpg&amp;width=150&amp;height=150" style="width: 40px; height: 40px;">
+                        <span class="caret"></span>
+                    </a>
+                    <ul class="dropdown-menu">
+                        <li><a href="/teacher/1/profile/index"><i class="ion-person"></i> Мой профиль</a></li>
+                        
+                        
+                        <li class="divider"></li>
+
+                        
+                                                    <li>
+                                <a href="https://alfacrm.pro/video" target="_blank">
+                                    <i class="ion-social-youtube-outline fa-fw fa"></i>
+                                    Видеоуроки                                </a>
+                            </li>
+                            <li>
+                                <a href="https://alfacrm.pro/knowledge/voprosy-i-otvety" target="_blank">
+                                    <i class="ion-help fa-fw fa"></i>
+                                    Популярные вопросы                                </a>
+                            </li>
+                            <li>
+                                <a href="https://alfacrm.pro/webinar" target="_blank">
+                                    <i class="ion-android-boat fa-fw fa"></i>
+                                    Обучающий вебинар                                </a>
+                            </li>
+                            <li>
+                                <a href="https://alfacrm.pro/news/releases" target="_blank">
+                                    <i class="ion-android-bulb fa-fw fa"></i>
+                                    Новые возможности                                </a>
+                            </li>
+                            <li class="divider"></li>
+                                                <li>
+                            <a href="/logout">
+                                <i class="ion-android-exit fa-fw fa"></i>
+                                Выход                            </a>
+                        </li>
+                    </ul>
+                </li>
+            
+                                                </ul>
+    </nav>
+</div>
+<div id="wrapper">
+    <nav class="navbar navbar-default navbar-static-side" role="navigation" style="display: block;">
+        <div class="sidebar-collapse" style="width: 200px; display: none;">
+            <ul class="nav metismenu" id="side-menu" style="display: none;">
+                
+<style>
+    .nav.metismenu li .badge, .nav.metismenu li .label {
+        float: right;
+        margin: 7px 4px 0 0;
+        position: relative;
+        z-index: 2;
+    }
+
+    .nav-action li a {
+        clear: none;
+    }
+
+    .nav-action li {
+        display: block;
+        clear: both;
+    }
+
+    .nav-action li .badge, .nav-action li .label {
+        float: right;
+        margin: 7px 7px 0 0;
+        position: relative;
+        z-index: 2;
+    }
+</style>
+
+    <li class="active">
+                        <a href="/teacher/1/profile/index">
+            <i class="ion-person"></i>
+            Мой профиль                    </a>
+    </li>
+    <li>
+                        <a href="/teacher/1/calendar/index">
+            <i class="ion-calendar"></i>
+            Уроки                    </a>
+    </li>
+    <li>
+                        <a href="/teacher/1/agile/index">
+            <i class="ion-clipboard"></i>
+            Задачи                    </a>
+    </li>
+    <li>
+                        <a href="/teacher/1/customer/index">
+            <i class="ion-person"></i>
+            Клиенты                    </a>
+    </li>
+    <li>
+                        <a href="/teacher/1/group/index">
+            <i class="ion-person-stalker"></i>
+            Группы                    </a>
+    </li>
+    <li>
+                <strong class="label label-default" title="0 новые публикации" onclick="location.href=&quot;/teacher/1/informer/index&quot;; return true;" style="cursor: pointer"></strong>        <a href="/teacher/1/informer/index">
+            <i class="ion-ios-paper"></i>
+            Информер                    </a>
+    </li>
+
+            </ul>
+        </div>
+    </nav>
+    <div id="page-wrapper" class="gray-bg" style="min-height: 387px;">
+        <div class="wrapper crm-content">
+                                        <div class="row m-b-sm visible-xs">
+                    <div class="col-sm-12">
+                        <div class="ibox-content border-bottom text-center crm-fulltext-search">
+                            <input type="text" class="form-control input-sm ui-autocomplete-input" placeholder="Поиск клиента" autocomplete="off">
+                        </div>
+                    </div>
+                </div>
+                                        
+    
+<div id="employee-pjax" data-pjax-container="" data-pjax-push-state="" data-pjax-timeout="1000">
+<div class="row m-b-sm crm-stick crm-actions">
+    <div class="col-sm-12">
+        <div class="ibox-content border-bottom">
+            <a class="btn btn-sm btn-w-m btn-info crm-modal-btn" href="#" data-modal-title="Реестр проведённых уроков" data-url="/teacher/1/report/lesson-list?id=71&amp;backUrl=https%3A%2F%2Fwellkid.s20.online%2Fteacher%2F1%2Fprofile%2Findex%3F"><i class="fa fa-file-text-o"></i> <span class="hidden-xs">Реестр проведённых уроков</span></a><a class="btn btn-sm btn-w-m btn-info crm-modal-btn" href="#" data-modal-title="Выписка по зарплате" data-url="/teacher/1/report/teacher-salary?id=71&amp;backUrl=https%3A%2F%2Fwellkid.s20.online%2Fteacher%2F1%2Fprofile%2Findex%3F"><i class="fa fa-file-text-o"></i> <span class="hidden-xs">Выписка по зарплате</span></a><a class="btn btn-sm btn-w-m btn-info crm-modal-btn" href="#" data-modal-title="Конверсия пробных уроков" data-url="/teacher/1/report/teacher-conversion?id=71&amp;backUrl=https%3A%2F%2Fwellkid.s20.online%2Fteacher%2F1%2Fprofile%2Findex%3F"><i class="fa fa-file-text-o"></i> <span class="hidden-xs">Конверсия пробных уроков</span></a>        </div>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-md-8 col-sm-7">
+        <div class="ibox float-e-margins m-b-sm">
+            <div class="ibox-content border-bottom">
+                <div>
+                    <span class="pull-right text-right text-muted">
+                                                    03.12.2003                            (22 года)
+                            <br>
+                                                <i class="ion-man"></i>
+                        Мужчина                    </span>
+
+                    
+<span class="dropdown pull-left m-r-sm">
+    <a class="dropdown-toggle" href="#" data-toggle="dropdown"><img class="img-thumbnail img-circle" src="/media/crop?url=uploads/1771225659IMG_20260214_091011.jpg&amp;width=100&amp;height=100" alt="" style="width: 50px; height: 50px"></a>    <ul role="menu" class="dropdown-menu">
+        <li><a class="crm-ajax-link" href="/teacher/1/profile/avatar-modal?class=User&amp;id=83"><i class="fa fa-search-plus"></i> Увеличить</a></li>        <li style="position: relative;"><a class="crm-avatar-btn" href="#" title="Загрузить фото" data-url="/teacher/1/profile/avatar-upload?class=User&amp;id=83" data-name="User[file]" style="position: relative; z-index: 1;"><i class="fa fa-paperclip"></i> Загрузить другой</a><div id="html5_1jt5ov398r0q1v4g1ln6le91h7f5_container" class="moxie-shim moxie-shim-html5" style="position: absolute; top: 0px; left: 0px; width: 0px; height: 0px; overflow: hidden; z-index: 0;"><input id="html5_1jt5ov398r0q1v4g1ln6le91h7f5" type="file" style="font-size: 999px; opacity: 0; position: absolute; top: 0px; left: 0px; width: 100%; height: 100%;" accept=".jpg,.gif,.png" tabindex="-1"></div></li>        <li><a class="crm-ajax-link" href="/teacher/1/profile/avatar-delete?class=User&amp;id=83" data-confirm="Вы действительно хотите удалить фото?" data-yes="Да" data-no="Нет" data-title="Подтвердите действие"><i class="fa fa-trash"></i> Удалить</a></li>    </ul>
+</span>
+
+
+                    <h2 class="font-noraml no-margins no-padding">
+                        Бутаков Лев Юрьевич                    </h2>
+                    <h4 class="font-noraml m-t-sm no-padding text-muted">
+                        <i class="ion-location"></i>
+                        Велкид                    </h4>
+                </div>
+
+                <div class="clearfix"></div>
+
+                <div class="m-b-md bg-warning p-xs">
+                    <a class="crm-dashed-link text-uppercase font-bold pull-right" href="#" onclick="$(&quot;.profile-form&quot;).toggle(&quot;fade&quot;); return false;"><i class="ion-edit"></i> Обновить информацию</a>                    <i class="ion-ios-information-outline"></i>
+                    <em>Чтобы изменить фотографию — кликните по ней.</em>                </div>
+
+                <form id="w2" class="form-horizontal profile-form" action="/teacher/1/profile/index" method="post" style="display: none;">
+<input type="hidden" name="_csrf" value="dsA6o-5xXBhiWQtDSAyHPo0OTCFn3jqkjSC3UI6OROslhlTOoAgZKQEMYgZ5X-hTviN-bCvuV8_faeAc-OwW2Q==">
+                <div class="form-group field-user-name required">
+<div class="col-sm-3"><label class="control-label" for="user-name">ФИО</label></div><div class="col-sm-9"><input type="text" id="user-name" class="form-control" name="User[name]" value="Бутаков Лев Юрьевич" placeholder="Введите ФИО" aria-required="true"><div class="help-block"></div></div>
+</div>
+                <div class="form-group field-user-gender required">
+<div class="col-sm-3"><label class="control-label" for="user-gender">Пол</label></div><div class="col-sm-9"><select id="user-gender" class="form-control" name="User[gender]" aria-required="true">
+<option value="1" selected="">Мужчина</option>
+<option value="0">Женщина</option>
+</select><div class="help-block"></div></div>
+</div>
+                <div class="form-group field-user-phone">
+<div class="col-sm-3"><label class="control-label" for="user-phone">Телефон</label></div><div class="col-sm-9"><input type="text" id="user-phone" class="form-control js-phone-input" name="User[phone]" value="+7(705)308-93-31" placehoder="Введите телефон"><div class="help-block"></div></div>
+</div>
+                <div class="form-group field-user-password">
+
+<div class="col-sm-3"><input type="hidden" name="User[change_password]" value="0"><label class="m-t-xs"><input type="checkbox" id="user-change_password" name="User[change_password]" value="1" onchange="$(&quot;#user-password, #gen-new-pass&quot;).attr(&quot;disabled&quot;, !$(this).is(&quot;:checked&quot;));"> Сменить пароль</label></div>
+<div class="col-sm-9">
+    <div class="input-group">
+        <input type="text" id="user-password" class="form-control new-pass" name="User[password]" disabled="disabled">
+        <div class="input-group-addon"><a id="gen-new-pass" class="crm-ajax-link crm-dashed-link" href="/common/1/ajax/password" disabled="disabled"><small>авто</small></a></div>
+    </div>
+    <div class="help-block"></div>
+</div>
+</div>                                <div class="form-group field-user-language">
+<div class="col-sm-3"><label class="control-label" for="user-language">Язык интерфейса</label></div><div class="col-sm-9"><select id="user-language" class="form-control" name="User[language]">
+<option value="">По умолчанию (ru)</option>
+<option value="ru" selected="">Русский</option>
+<option value="en">English</option>
+<option value="es">Español</option>
+<option value="fr">Français</option>
+<option value="cs">Čeština</option>
+<option value="ja">日本語</option>
+<option value="uk">Українська</option>
+<option value="de">Deutsch</option>
+<option value="kk">Қазақ</option>
+<option value="be">Беларуская</option>
+<option value="lv">Latviski</option>
+<option value="ro">Română</option>
+<option value="fi">Suomi</option>
+<option value="it">Italiano</option>
+<option value="ka">ქართული</option>
+<option value="bg">Български</option>
+<option value="uz">Oʻzbek tili</option>
+<option value="pl">Polski</option>
+</select><div class="help-block"></div></div>
+</div>
+                <style>
+    .material-switch > input[type="checkbox"] {
+        display: none;
+    }
+
+    .material-switch > label {
+        cursor: pointer;
+        height: 0px;
+        position: relative;
+        width: 40px;
+    }
+
+    .material-switch > label::before {
+        background: rgb(0, 0, 0);
+        box-shadow: inset 0px 0px 10px rgba(0, 0, 0, 0.5);
+        border-radius: 8px;
+        content: '';
+        height: 16px;
+        margin-top: -8px;
+        position: absolute;
+        opacity: 0.3;
+        transition: all 0.4s ease-in-out;
+        width: 40px;
+    }
+
+    .material-switch > label::after {
+        background: rgb(255, 255, 255);
+        border-radius: 16px;
+        box-shadow: 0px 0px 5px rgba(0, 0, 0, 0.3);
+        content: '';
+        height: 24px;
+        left: -4px;
+        margin-top: -8px;
+        position: absolute;
+        top: -4px;
+        transition: all 0.3s ease-in-out;
+        width: 24px;
+    }
+
+    .material-switch > input[type="checkbox"]:checked + label::before {
+        background: inherit;
+        opacity: 0.5;
+    }
+
+    .material-switch > input[type="checkbox"]:checked + label::after {
+        background: inherit;
+        left: 20px;
+    }
+
+    .material-switch > input[type="checkbox"]:disabled + label::after{
+        background-color: #ccc; /* Серый цвет фона */
+        color: #666; /* Серый цвет текста */
+        opacity: 0.5; /* Добавляем прозрачность */
+    }
+</style>
+
+
+                <div class="text-right">
+                    <button type="submit" class="btn btn-success btn-w-m"><i class="fa fa-save"></i> Сохранить</button>                </div>
+
+                </form>
+                <div class="clearfix"></div>
+
+                                                        <div class="clearfix m-b-xs"></div>
+                
+                
+<style>
+    .calendar-rec {
+        display: flex;
+        justify-content: space-between
+    }
+
+    .calendar-rec:hover {
+        background-color: #efefef
+    }
+
+    .lesson-data {
+        white-space: nowrap
+    }
+</style>
+<div class="table-responsive">
+    <h4 class="m-b-xs m-l-sm m-r-sm">Расписание на ближайшие 7 дней</h4>
+    <table class="table table-stripped table-condensed m-b-none border-bottom">
+                    <tbody><tr>
+                <td class="col-sm-2 text-muted">
+                    <small>
+                        Пятница,<br>
+                        10.07.2026                    </small>
+                </td>
+                <td class="col-sm-10 lesson-data">
+                                                                        <div class="small no-margins calendar-rec" style="padding: 2px">
+                                <div>
+                                    18:00                                    —
+                                    19:00
+                                    <i class="ion-person m-l-sm"></i>
+                                    Родион Вильгоцкий ТГ МАХ бот
+                                    <span class="text-muted m-l-sm">
+                                        <i class="ion-clock"></i>
+                                        60 минут                                    </span>
+                                </div>
+                                <a class="text-primary" href="#" onclick="return false">
+                                                                            <i class="ion-pin"></i>
+                                        постоянный                                                                    </a>
+                            </div>
+                                                                                                <div class="small no-margins calendar-rec" style="padding: 2px">
+                                <div>
+                                    19:00                                    —
+                                    20:00
+                                    <i class="ion-person-stalker m-l-sm"></i>
+                                    ППН 328 (3)
+                                    <span class="text-muted m-l-sm">
+                                        <i class="ion-clock"></i>
+                                        60 минут                                    </span>
+                                </div>
+                                <a class="text-primary" href="#" onclick="return false">
+                                                                            <i class="ion-pin"></i>
+                                        постоянный                                                                    </a>
+                            </div>
+                                                                                                <div class="small no-margins calendar-rec" style="padding: 2px">
+                                <div>
+                                    20:00                                    —
+                                    21:00
+                                    <i class="ion-person-stalker m-l-sm"></i>
+                                    ПМП 107 (4)
+                                    <span class="text-muted m-l-sm">
+                                        <i class="ion-clock"></i>
+                                        60 минут                                    </span>
+                                </div>
+                                <a class="text-primary" href="#" onclick="return false">
+                                                                            <i class="ion-pin"></i>
+                                        постоянный                                                                    </a>
+                            </div>
+                                                            </td>
+            </tr>
+                    <tr>
+                <td class="col-sm-2 text-muted">
+                    <small>
+                        Суббота,<br>
+                        11.07.2026                    </small>
+                </td>
+                <td class="col-sm-10 lesson-data">
+                                                                        <div class="small no-margins calendar-rec" style="padding: 2px">
+                                <div>
+                                    11:00                                    —
+                                    12:00
+                                    <i class="ion-person-stalker m-l-sm"></i>
+                                    ПП2.0 93 (2<span class="text-muted" style="padding: 0 1px">/</span><span class="text-warning font-bold" title="Последнее оплаченное">1</span>)
+                                    <span class="text-muted m-l-sm">
+                                        <i class="ion-clock"></i>
+                                        60 минут                                    </span>
+                                </div>
+                                <a class="text-primary" href="#" onclick="return false">
+                                                                            <i class="ion-pin"></i>
+                                        постоянный                                                                    </a>
+                            </div>
+                                                                                                <div class="small no-margins calendar-rec" style="padding: 2px">
+                                <div>
+                                    15:00                                    —
+                                    16:00
+                                    <i class="ion-person-stalker m-l-sm"></i>
+                                    ППН 329 (3<span class="text-muted" style="padding: 0 1px">/</span><span class="text-danger font-bold" title="Не оплачено">1</span>)
+                                    <span class="text-muted m-l-sm">
+                                        <i class="ion-clock"></i>
+                                        60 минут                                    </span>
+                                </div>
+                                <a class="text-primary" href="#" onclick="return false">
+                                                                            <i class="ion-pin"></i>
+                                        постоянный                                                                    </a>
+                            </div>
+                                                                                                <div class="small no-margins calendar-rec" style="padding: 2px">
+                                <div>
+                                    16:00                                    —
+                                    17:00
+                                    <i class="ion-flag m-l-sm"></i>
+                                    Ярослав Максимов ТГ МАХ бот
+                                    <span class="text-muted m-l-sm">
+                                        <i class="ion-clock"></i>
+                                        60 минут                                    </span>
+                                </div>
+                                <a class="text-primary" href="#" onclick="return false">
+                                                                            <i class="fa fa-square-o"></i>
+                                        разовый                                                                    </a>
+                            </div>
+                                                            </td>
+            </tr>
+                    <tr>
+                <td class="col-sm-2 text-muted">
+                    <small>
+                        Воскресенье,<br>
+                        12.07.2026                    </small>
+                </td>
+                <td class="col-sm-10 lesson-data">
+                                                                        <div class="small no-margins calendar-rec" style="padding: 2px">
+                                <div>
+                                    16:00                                    —
+                                    17:00
+                                    <i class="ion-person-stalker m-l-sm"></i>
+                                    ППН 334 (1)
+                                    <span class="text-muted m-l-sm">
+                                        <i class="ion-clock"></i>
+                                        60 минут                                    </span>
+                                </div>
+                                <a class="text-primary" href="#" onclick="return false">
+                                                                            <i class="ion-pin"></i>
+                                        постоянный                                                                    </a>
+                            </div>
+                                                            </td>
+            </tr>
+                    <tr>
+                <td class="col-sm-2 text-muted">
+                    <small>
+                        Среда,<br>
+                        15.07.2026                    </small>
+                </td>
+                <td class="col-sm-10 lesson-data">
+                                                                        <div class="small no-margins calendar-rec" style="padding: 2px">
+                                <div>
+                                    18:00                                    —
+                                    19:00
+                                    <i class="ion-person m-l-sm"></i>
+                                    Родион Вильгоцкий ТГ МАХ бот
+                                    <span class="text-muted m-l-sm">
+                                        <i class="ion-clock"></i>
+                                        60 минут                                    </span>
+                                </div>
+                                <a class="text-primary" href="#" onclick="return false">
+                                                                            <i class="ion-pin"></i>
+                                        постоянный                                                                    </a>
+                            </div>
+                                                            </td>
+            </tr>
+            </tbody></table>
+</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4 col-sm-5">
+        <div class="ibox float-e-margins m-b-sm">
+            <div class="ibox-content border-bottom">
+                <div class="row">
+                    <div class="col-xs-5 text-muted m-b-xs">
+                        ID
+                    </div>
+                    <div class="col-xs-7 m-b-xs text-right">
+                        #71                    </div>
+                    <div class="col-xs-5 text-muted m-b-xs">
+                        Уроки                    </div>
+                    <div class="col-xs-7 m-b-xs text-right">
+                        <a href="/teacher/1/lesson/index?LessonSearch%5Bf_teacher_id%5D=71" target="_blank">2626 штук</a>                        <span class="dropdown">
+                            <a class="dropdown-toggle text-success m-l-sm crm-dashed-link" aria-expanded="false" role="button" href="#" data-toggle="dropdown" title="Добавить">заплан.</a>
+                            <ul role="menu" class="dropdown-menu dropdown-left">
+                                                                                                                                            <li>
+                                        <a class="text-lowercase crm-modal-btn" href="#" data-url="/teacher/1/calendar/create?lesson_type_id=1&amp;customerIds%5B%5D=83&amp;backUrl=https%3A%2F%2Fwellkid.s20.online%2Fteacher%2F1%2Fprofile%2Findex%3F" data-modal-title="Добавить индивидуальный"><i class="ion-person"></i> Индивидуальный</a>                                    </li>
+                                                                                                        <li>
+                                        <a class="text-lowercase crm-modal-btn" href="#" data-url="/teacher/1/calendar/create?lesson_type_id=3&amp;customerIds%5B%5D=83&amp;backUrl=https%3A%2F%2Fwellkid.s20.online%2Fteacher%2F1%2Fprofile%2Findex%3F" data-modal-title="Добавить пробный"><i class="ion-asterisk"></i> Пробный</a>                                    </li>
+                                                                                                        <li>
+                                        <a class="text-lowercase crm-modal-btn" href="#" data-url="/teacher/1/calendar/create?lesson_type_id=4&amp;customerIds%5B%5D=83&amp;backUrl=https%3A%2F%2Fwellkid.s20.online%2Fteacher%2F1%2Fprofile%2Findex%3F" data-modal-title="Добавить дополнительный урок"><i class="ion-flash"></i> Дополнительный урок</a>                                    </li>
+                                                                                                        <li>
+                                        <a class="text-lowercase crm-modal-btn" href="#" data-url="/teacher/1/calendar/create?lesson_type_id=5&amp;customerIds%5B%5D=83&amp;backUrl=https%3A%2F%2Fwellkid.s20.online%2Fteacher%2F1%2Fprofile%2Findex%3F" data-modal-title="Добавить перенос"><i class="ion-flag"></i> Перенос</a>                                    </li>
+                                                                                                        <li>
+                                        <a class="text-lowercase crm-modal-btn" href="#" data-url="/teacher/1/calendar/create?lesson_type_id=6&amp;customerIds%5B%5D=83&amp;backUrl=https%3A%2F%2Fwellkid.s20.online%2Fteacher%2F1%2Fprofile%2Findex%3F" data-modal-title="Добавить урок определения уровня"><i class="ion-flash"></i> Урок определения уровня</a>                                    </li>
+                                                                                                </ul>
+                        </span>
+                    </div>
+                </div>
+
+                <!-- contacts -->
+                <hr class="hr-line-dashed m-t-sm m-b-sm">
+                <style>
+    .word-break {word-break: break-word;}
+    .max-icon {
+        vertical-align: sub!important;
+    }
+</style>
+
+    <div class="row">
+        <div class="col-xs-5 text-muted m-b-xs">
+            Мобильный        </div>
+        <div class="col-xs-7 m-b-xs text-right word-break" style="overflow-x: hidden">
+                                                                                
+                                                                                                    
+                
+                
+                <a href="tel:+77053089331">+7(705)308-93-31</a>
+                <a class="btn btn-xs btn-primary crm-ajax-link m-r-xxs" href="/company/1/sms/bulk?related_class=Teacher&amp;related_ids%5B%5D=71&amp;phone=%2B7%28705%29308-93-31" title="Написать SMS (из системы)"><i class="ion-email"></i></a><a class="btn btn-xs btn-primary m-r-xxs whatsapp-launcher" href="whatsapp://send/?phone=77053089331" title="Открыть WhatsApp (WEB)" data-id="77053089331"><i class="ion-social-whatsapp"></i></a>                                </div>
+    </div>
+    <div class="row">
+        <div class="col-xs-5 text-muted m-b-xs">
+            E-mail        </div>
+        <div class="col-xs-7 m-b-xs text-right word-break" style="overflow-x: hidden">
+                            <a href="mailto:sagittarius3021@gmail.com" title="Написать письмо (почтовая программа)">sagittarius3021@gmail.com</a>                                    <a class="btn btn-xs btn-primary crm-ajax-link m-r-xxs" href="/company/1/mail/bulk?related_class=Teacher&amp;related_ids%5B%5D=71&amp;email=sagittarius3021%40gmail.com" title="Написать письмо (из системы)"><i class="ion-email"></i></a>                                                </div>
+    </div>
+    <div class="row">
+        <div class="col-xs-5 text-muted m-b-xs">
+            Telegram        </div>
+        <div class="col-xs-7 m-b-xs text-right word-break" style="overflow-x: hidden">
+                            <a class="btn btn-xs btn-primary m-r-xxs" href="https://t.me/Sagittariusleo" title="Отправить сообщение в Telegram" data-id="Sagittariusleo" target="_blank"><i class="flaticon-telegram"></i></a>                <div class="small">
+                    @Sagittariusleo                </div>
+                                </div>
+    </div>
+
+<script>
+    window.addEventListener('load', function () {
+        const browser = window.navigator.userAgent;
+        const company = window.navigator.vendor;
+
+        const link = $('.whatsapp-launcher');
+
+        if (browser.match(/(Safari)/) && company.match(/(Apple)/)) {
+            link.href = `#`
+        }
+
+        // Checking on a mobile device to avoid problems with opening a mobile application
+        if (/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(browser)) {
+            return;
+        }
+
+        // On mobile devices, this construction breaks the intent call to open the Whatsapp application
+        link.on('click', whatsappCall);
+
+
+        function whatsappCall(e) {
+            const phone = $(e.currentTarget).attr('data-id');
+            window.open('https://web.whatsapp.com/send?phone=' + phone, '_blank');
+        }
+    });
+</script>
+
+                                    <hr class="hr-line-dashed m-t-sm m-b-sm">
+                    
+
+<p class="no-padding m-b-xs m-t-xs">
+    <a class="crm-dashed-link m-l-xl crm-modal-btn pull-right" href="#" data-url="/teacher/1/profile/working-hour-modal?employeeId=71" data-modal-title="График работы"><span class="text-lowercase font-normal">Править</span></a>    <strong class="text-muted">График работы</strong>
+</p>
+
+    <div class="row">
+        <div class="col-sm-12">
+            <div class="text-danger alert-warning text-center">
+                (не задано)            </div>
+        </div>
+    </div>
+                            </div>
+        </div>
+                    <style>.salary-widget h3{text-align: right!important; padding-right: 10px; font-size: 14px}</style>
+            <div class="ibox float-e-margins m-b-sm">
+                <div class="ibox-content border-bottom">
+                    <div class="salary-widget">
+                        <span class="pull-left">Статистика</span>
+                        <div class="row">
+                                            <div class="col-sm-12">
+                            <h3 class="text-right m-b-none font-noraml m-r-md">Июль</h3>
+                        </div>
+                        <div class=" col-sm-12">
+                            <div class="row m-b-sm">
+                                                                    <div class="col-xs-4 text-center">
+                                        <small class="text-muted">Индивидуальный</small>
+                                        <h4 class="no-margins font-noraml">
+                                            3                                            <span class="text-primary">шт</span>
+                                        </h4>
+                                    </div>
+                                                                    <div class="col-xs-4 text-center">
+                                        <small class="text-muted">Перенос</small>
+                                        <h4 class="no-margins font-noraml">
+                                            5                                            <span class="text-primary">шт</span>
+                                        </h4>
+                                    </div>
+                                                                    <div class="col-xs-4 text-center">
+                                        <small class="text-muted">Групповой</small>
+                                        <h4 class="no-margins font-noraml">
+                                            6                                            <span class="text-primary">шт</span>
+                                        </h4>
+                                    </div>
+                                                            </div>
+                        </div>
+                        <div class=" col-sm-12">
+                            <div class="row m-b-sm">
+                                                                    <div class="col-xs-4 text-center">
+                                        <small class="text-muted">Индивидуальный</small>
+                                        <h4 class="no-margins font-noraml">
+                                            180                                            <span class="text-primary">мин</span>
+                                        </h4>
+                                    </div>
+                                                                    <div class="col-xs-4 text-center">
+                                        <small class="text-muted">Перенос</small>
+                                        <h4 class="no-margins font-noraml">
+                                            210                                            <span class="text-primary">мин</span>
+                                        </h4>
+                                    </div>
+                                                                    <div class="col-xs-4 text-center">
+                                        <small class="text-muted">Групповой</small>
+                                        <h4 class="no-margins font-noraml">
+                                            360                                            <span class="text-primary">мин</span>
+                                        </h4>
+                                    </div>
+                                                            </div>
+                        </div>
+                                            <div class="col-sm-12">
+                            <h3 class="text-right m-b-none font-noraml m-r-md">Июнь</h3>
+                        </div>
+                        <div class=" col-sm-12">
+                            <div class="row m-b-sm">
+                                                                    <div class="col-xs-4 text-center">
+                                        <small class="text-muted">Групповой</small>
+                                        <h4 class="no-margins font-noraml">
+                                            22                                            <span class="text-primary">шт</span>
+                                        </h4>
+                                    </div>
+                                                                    <div class="col-xs-4 text-center">
+                                        <small class="text-muted">Перенос</small>
+                                        <h4 class="no-margins font-noraml">
+                                            10                                            <span class="text-primary">шт</span>
+                                        </h4>
+                                    </div>
+                                                                    <div class="col-xs-4 text-center">
+                                        <small class="text-muted">Дополнительный урок</small>
+                                        <h4 class="no-margins font-noraml">
+                                            2                                            <span class="text-primary">шт</span>
+                                        </h4>
+                                    </div>
+                                                            </div>
+                        </div>
+                        <div class=" col-sm-12">
+                            <div class="row m-b-sm">
+                                                                    <div class="col-xs-4 text-center">
+                                        <small class="text-muted">Групповой</small>
+                                        <h4 class="no-margins font-noraml">
+                                            1320                                            <span class="text-primary">мин</span>
+                                        </h4>
+                                    </div>
+                                                                    <div class="col-xs-4 text-center">
+                                        <small class="text-muted">Перенос</small>
+                                        <h4 class="no-margins font-noraml">
+                                            360                                            <span class="text-primary">мин</span>
+                                        </h4>
+                                    </div>
+                                                                    <div class="col-xs-4 text-center">
+                                        <small class="text-muted">Дополнительный урок</small>
+                                        <h4 class="no-margins font-noraml">
+                                            60                                            <span class="text-primary">мин</span>
+                                        </h4>
+                                    </div>
+                                                            </div>
+                        </div>
+                                    </div>                    </div>
+                </div>
+            </div>
+            </div>
+</div>
+
+</div>                    </div>
+    </div>
+</div>
+
+<div id="ws-tasks-panel" class="xs-hidden" style="display: none;">
+    <div class="wrapper no-paddings m-t-xs"></div>
+    <div class="task-card float-left m-r-xs m-b-xs p-xxs" style="display: none;">
+        <div class="task-title shortly font-bold"></div>
+        <button type="button" class="close" aria-label="Close"><span aria-hidden="true">×</span></button>
+        <div class="avatar">
+            <div class="task-customer shortly" style="display: none;">
+                <a href="#" class="task-customer">
+                    <i class="fa fa-user"></i>
+                    <span class="customer-name"></span>
+                </a>
+            </div>
+            <div class="task-group shortly" style="display: none;">
+                <a href="#" class="task-group">
+                    <i class="fa fa-group"></i>
+                    <span class="group-name"></span>
+                </a>
+            </div>
+            <div class="task-company shortly" style="display: none;">
+                <a href="#" class="task-company">
+                    <i class="fa fa-briefcase"></i>
+                    <span class="company-name"></span>
+                </a>
+            </div>
+            <div class="task-time">
+                <i class="fa fa-calendar"></i> <span class="task-date"></span>
+                <i class="fa fa-clock-o"></i> <span class="task-time"></span>
+            </div>
+            <div class="media-body task-status-name text-muted text-center"></div>
+        </div>
+    </div>
+    <div class="close-all" style="display: none;">
+        <button type="button" class="close-all-button">Закрыть все</button>
+    </div>
+</div>
+<footer class="footer no-padding">
+    <div class="container m-t-sm text-center">
+                <p class="text-muted no-padding m-b-sm">
+            © <a href="https://alfacrm.pro/" target="_blank" class="text-success crm-thin-link">ALFACRM</a>™
+            &nbsp;
+            <strong>2.2.5</strong>
+            &nbsp;
+            <strong>09.07.2026</strong>
+            |
+            <em id="execution_time">
+                0.385ms
+            </em>
+            |
+            <a class="text-success crm-thin-link" href="https://alfacrm.pro/agreement" target="_blank">Оферта</a>        </p>
+    </div>
+</footer>
+
+<div id="common-modal-lg" class="modal" role="dialog">
+    <div class="modal-dialog modal-lg" role="document">
+        <div class="modal-content common-modal-content"></div>
+    </div>
+</div>
+
+<div id="common-modal" class="modal" role="dialog">
+    <div class="modal-dialog" role="document">
+        <div class="modal-content common-modal-content">
+
+        </div>
+    </div>
+</div>
+
+<div id="common-modal-content" class="hide">
+    <div class="modal-header">
+        <button type="button" class="close" data-dismiss="modal" aria-label="Close"><span aria-hidden="true">×</span></button>
+        <h4 class="modal-title">Загрузка...</h4>
+    </div>
+    <div class="modal-body">
+        <div class="spiner-example">
+            <div class="sk-spinner sk-spinner-wave">
+                <div class="sk-rect1"></div>
+                <div class="sk-rect2"></div>
+                <div class="sk-rect3"></div>
+                <div class="sk-rect4"></div>
+                <div class="sk-rect5"></div>
+            </div>
+        </div>
+    </div>
+    <div class="modal-footer">
+        <button type="button" class="btn btn-white btn-w-m btn-sm" data-dismiss="modal">Отмена</button>
+    </div>
+</div>
+
+<div id="common-modal-sm" class="modal" tabindex="-1" role="dialog">
+    <div class="modal-dialog modal-sm" role="document">
+        <div class="modal-content common-modal-content">
+        </div>
+    </div>
+</div>
+
+<div id="common-modal-over" class="modal" tabindex="-1" role="dialog">
+    <div class="modal-dialog" role="document">
+        <div class="modal-content common-modal-content">
+        </div>
+    </div>
+</div>
+
+<div id="common-modal-ext" class="modal" tabindex="-1" role="dialog">
+    <div class="modal-dialog" role="document">
+        <div class="modal-content common-modal-content"></div>
+    </div>
+</div>
+
+
+
+<script src="//cdn.alfacrm.pro/socket.io/socket.io.js"></script>
+<script src="//cdn.alfacrm.pro/jquery.min.js"></script>
 <script src="//cdn.alfacrm.pro/yii/yii.js"></script>
 <script src="//cdn.alfacrm.pro/yii/yii.validation.js"></script>
 <script src="//cdn.alfacrm.pro/yii/yii.activeForm.js"></script>
+<script src="//cdn.alfacrm.pro/yii/jquery.pjax.js"></script>
 <script src="//cdn.alfacrm.pro/jquery-ui.min.js"></script>
 <script src="//cdn.alfacrm.pro/bootstrap/min.js"></script>
 <script src="//cdn.alfacrm.pro/datapicker/datepicker.min.js"></script>
@@ -102,14 +1330,547 @@
 <script src="//cdn.alfacrm.pro/plugins/phone-mask.init.js"></script>
 <script src="//cdn.alfacrm.pro/yii/dialog.min.js"></script>
 <script src="//cdn.alfacrm.pro/yii/dialog-yii.min.js"></script>
-<script src="//cdn.alfacrm.pro/yii/jquery.pjax.js"></script>
 <script src="//cdn.alfacrm.pro/tagsinput/bootstrap-tagsinput.min.js"></script>
-<script src="//cdn.alfacrm.pro/crm.custom193.js?v=202607080731"></script>
+<script src="//cdn.alfacrm.pro/crm.custom193.js?v=202607091255"></script>
 <script src="//cdn.alfacrm.pro/datetime-picker/bootstrap-datetimepicker.min.js"></script>
 <script src="/driver.js/driver.js.iife.js"></script>
 <script>jQuery(function ($) {
-jQuery('#login-form').yiiActiveForm([{"id":"login2faform-code","name":"code","container":".field-login2faform-code","input":"#login2faform-code","error":".help-block.help-block-error","validate":function (attribute, value, messages, deferred, $form) {yii.validation.required(value, messages, {"message":"Code cannot be blank."});}}], []);
+initialize_uploader($(".crm-avatar-btn"));
+$("#user-change_password").click().click()
+jQuery('#w2').yiiActiveForm([{"id":"user-name","name":"name","container":".field-user-name","input":"#user-name","validate":function (attribute, value, messages, deferred, $form) {yii.validation.required(value, messages, {"message":"Необходимо заполнить «ФИО»."});yii.validation.string(value, messages, {"message":"Значение «ФИО» должно быть строкой.","max":255,"tooLong":"Значение «ФИО» должно содержать максимум 255 символов.","skipOnEmpty":1});}},{"id":"user-gender","name":"gender","container":".field-user-gender","input":"#user-gender","validate":function (attribute, value, messages, deferred, $form) {yii.validation.required(value, messages, {"message":"Необходимо заполнить «Пол»."});yii.validation.range(value, messages, {"range":["1","0"],"not":false,"message":"Значение «Пол» неверно.","skipOnEmpty":1});}},{"id":"user-phone","name":"phone","container":".field-user-phone","input":"#user-phone","validate":function (attribute, value, messages, deferred, $form) {yii.validation.string(value, messages, {"message":"Значение «Телефон» должно быть строкой.","max":255,"tooLong":"Значение «Телефон» должно содержать максимум 255 символов.","skipOnEmpty":1});}},{"id":"user-password","name":"password","container":".field-user-password","input":"#user-password","validate":function (attribute, value, messages, deferred, $form) {yii.validation.required(value, messages, {"message":"Необходимо заполнить «Пароль»."});let val = $('#user-password').val(), badPasswords = ["BvtTest123"];
+
+if (!/^[a-z0-9]+$/i.test(val)) {
+    messages.push("Пароль должен содержать только латинские буквы и цифры");
+}
+
+if (val.length < 10) {
+    messages.push("Количество символов должно быть не меньше 10");
+}
+
+if (val.length > 70) {
+    messages.push("Количество символов не должно быть больше 70");
+}
+
+if (!/[0-9]+/.test(val)) {
+    messages.push("Пароль должен содержать хотя бы одну цифру");
+}
+
+if (!/[A-Z]+/.test(val)) {
+    messages.push("Пароль должен содержать хотя бы один ЗАГЛАВНЫЙ знак");
+}
+
+if (badPasswords.indexOf(val) !== -1) {
+    messages.push("Ненадежный пароль");
+}
+
+if (messages.length === 0) {
+    $(this.container).change();
+}}},{"id":"user-language","name":"language","container":".field-user-language","input":"#user-language","validate":function (attribute, value, messages, deferred, $form) {value = yii.validation.trim($form, attribute, {"skipOnEmpty":1}, value);}}], []);
+
+jQuery(document).off("submit", "#employee-pjax form[data-pjax]").on("submit", "#employee-pjax form[data-pjax]", function (event) {jQuery.pjax.submit(event, {"push":true,"replace":false,"timeout":1000,"scrollTo":false,"container":"#employee-pjax"});});
+if(!window.socket){
+    window.socket = io('https://ws1.alfacrm.pro:8088?channel%5B=wellkid_s20_online%2F83');
+}
+var closeUrl          = '/common/1/ajax/close-notification';
+var taskUrl = '/teacher/1/agile/view';
+var customerUrl = '/teacher/1/customer/view';
+var groupUrl = '/teacher/1/group/view';
+var companyUrl = '/teacher/1/company/view';
+var andAnotherCountText = ' и еще ';
+var tasksPanel   = $('#ws-tasks-panel');
+var tasksWrapper = $('#ws-tasks-panel > .wrapper');
+var currentCardsIds = [];
+var cachedNotifications = [];
+
+window.socket.on("connect_error", () => {
+  setTimeout(() => {
+    window.socket.connect();
+  }, 1000);
+});
+
+window.socket.on("disconnect", (reason) => {
+  if (reason === "io server disconnect") {
+    // the disconnection was initiated by the server, you need to reconnect manually
+    window.socket.connect();
+  }
+  // else the socket will automatically try to reconnect
+});
+
+window.socket.on('connect', function()
+{
+    window.socket.on('task-notification', fetchNotification);
+});
+
+cachedNotifications.forEach((notification) => {
+    fetchNotification(notification.data);
+})
+
+
+function fetchNotification(data){
+        addTask(data);
+        var closeAll = $('div.close-all')
+        closeAll.find('.close-all-button').on('click', function() {
+            emitCloseAll();
+        });
+        if(currentCardsIds.length > 1){
+            closeAll.show();
+        }else{
+            closeAll.hide();
+        }
+}
+function emitCloseAll(){
+    currentCardsIds.forEach(function(id){
+        currentCardsIds = currentCardsIds.filter(function(item){
+            return item !== id;
+        })
+        hideCard(id);
+        $.getJSON(closeUrl,{key: id})
+    })
+}
+function hideCard(taskId){
+    var taskCard = tasksWrapper.find('.task-card[data-id=' + taskId + ']');
+
+    if (taskCard.length === 0)
+        return;
+
+    taskCard.remove();
+    
+    if (currentCardsIds.length === 0) 
+        tasksPanel.hide();
+}
+function addTask(task){
+       var newTask  = false;
+   var taskCard = tasksWrapper.find('.task-card[data-id=' + task.id + ']');
+   
+   if (taskCard.length === 0) 
+   {
+       var taskCard = $('#ws-tasks-panel > .task-card').clone();
+       newTask = true;
+   }
+   
+   var timestamp = moment(task.time);
+   if(timestamp.isSameOrAfter(moment())){
+       taskCard.addClass('blue');
+       taskCard.removeClass('red');
+   }else{
+       taskCard.addClass('red');
+       taskCard.removeClass('blue');
+   }
+
+   taskCard.attr('data-id', task.id);
+   
+   var customer, customerId, group, groupId, company, companyId = null;
+    taskCard.find('div.task-title').text(task.title);
+    taskCard.find('span.task-date').text(timestamp.format('DD.MM.YYYY'));
+    taskCard.find('span.task-time').text(timestamp.format('HH:mm'));
+    
+   if(task.customers.length){
+       customerId = task.customers[0].id;
+       customer = task.customers[0].name
+       if(task.customers.length > 1){
+           customer += andAnotherCountText + (task.customers.length -1)
+       }
+       taskCard.find('div.task-customer').show()
+       taskCard.find('a.task-customer').attr('href',customerUrl+'?id='+customerId);
+       taskCard.find('span.customer-name').text(customer);
+   }
+   if(task.groups.length){
+       groupId = task.groups[0].id;
+       group = task.groups[0].name;
+       if(task.groups.length > 1){
+           group += andAnotherCountText + (task.groups.length -1);
+       }
+       taskCard.find('div.task-group').show()
+       taskCard.find('a.task-group').attr('href',groupUrl+'?id='+groupId);
+       taskCard.find('span.group-name').text(group);
+   }
+   
+   if(task.company){
+       companyId = task.company.id;
+       company = task.company.name;
+       taskCard.find('div.task-company').show()
+       taskCard.find('a.task-company').attr('href',companyUrl+'?id='+companyId);
+       taskCard.find('span.company-name').text(company);
+   }
+
+    if (newTask) 
+    {
+        taskCard.find('.close').on('click', function() {
+            closeTask(task.id);
+        });
+        taskCard.find('.task-title').on('click', function() {
+            openTask(task.id)
+        })
+        tasksWrapper.append(taskCard);
+        focusOnWindow(task.title, 2);
+        taskCard.show();
+        currentCardsIds.push(task.id);
+    }
+
+   tasksPanel.show();
+}
+function openTask(taskId){
+    closeTask(taskId)
+    window.location.href = taskUrl+'?id='+taskId;
+}
+function closeTask(taskId = 'all'){
+    currentCardsIds = currentCardsIds.filter(function(item){
+        return item !== taskId;
+    })
+    hideCard(taskId);
+    $.getJSON(closeUrl,{key: taskId})
+}
+
+
+
+var focusOnWindowActive = false;
+function focusOnWindow(title, count) 
+{
+   if (focusOnWindowActive) {
+       return;
+   }
+   focusOnWindowActive = true;
+
+   var show = [ title, '************', window.document.title, '************' ];
+   var focusTimer;
+   var i = 0;
+
+   function stopBlinking() 
+   {
+     clearInterval(focusTimer);
+     window.document.title = show[2];
+     focusOnWindowActive = false;
+   }
+
+   function blinkByTheTitle() 
+   {
+       window.document.title = show[i++ % 4];
+       if (i > count*4)
+           stopBlinking();
+   }
+
+   $(window).on('focus', stopBlinking);
+   blinkByTheTitle();
+   setInterval(blinkByTheTitle, 1000);
+}
 });</script>
+<script>jQuery(window).on('load', function () {
+if(!window.socket){
+    window.socket = io('https://ws1.alfacrm.pro:8088?channel%5B=wellkid_s20_online%2F83');
+}
+var currentUserId       = 83;
+var textNewMessage      = 'Новое сообщение';
+var urlChat             = '/teacher/1/chat/index';
+var systemTypes        = ["system_user_added","system_user_leaved","system_user_kicked","system_user_promoted","system_user_demoted","system_chat_renamed","system_chat_avatar_changed"];
+var notificationPanel   = $('#notifications-panel');
+var notificationWrapper = $('#notifications-panel > .wrapper');
+var focusOnWindowActive = false;
+var chatNotificationTimers = {}; // Объект для хранения таймеров уведомлений
+var chatMessageNotificationSound = new Audio('/chat-message-notification-sound.mp3');
+
+window.socket.on("connect_error", () => {
+  setTimeout(() => {
+    window.socket.connect();
+  }, 1000);
+});
+
+window.socket.on("disconnect", (reason) => {
+  if (reason === "io server disconnect") {
+    window.socket.connect();
+  }
+});
+
+window.socket.on('connect', function()
+{
+    window.socket.on('new-chat', newChat);
+
+    window.socket.on('chat-message', newMessage);
+
+    window.socket.on('chat-message-read', readMessage);
+});
+
+function newChat(data) {
+    addNotify({
+        id: data.id,
+        createdAt: data.created_at,
+        unread: data.chat.unread_count,
+        message: data.text,
+        status: 'new_chat',
+        userName: data.user.name,
+        toastEnabled: data.toast_enabled,
+    })
+}
+
+function readMessage(data) {
+    if(data?.unread_total) {
+        updateUnreadLabel(data?.unread_total)
+    }
+}
+
+function updateUnreadLabel(unreadTotal) {
+    const unreadLabels = document.querySelectorAll('[id="chat-message-notification-label"]');
+    unreadLabels.forEach(unreadLabel => {
+        if (!unreadTotal || Number(unreadTotal) <= 0) {
+            unreadLabel.textContent = '';
+        } else {
+            unreadLabel.textContent = unreadTotal;
+        }
+    });
+}
+
+function newMessage(data) {
+    if (currentUserId == data.user.id) {
+        return;
+    }
+    
+    if (systemTypes.indexOf(data.type) != -1) {
+        return;
+    }
+    
+    const isSoundEnabled = () => {
+      const soundSetting = localStorage.getItem('alfa-chat-message-sound-on');
+      return soundSetting ? JSON.parse(soundSetting) : true;
+    };
+
+    if (isSoundEnabled() && chatMessageNotificationSound.paused && data.sound_enabled) {
+        chatMessageNotificationSound.play().catch((error) => {
+            console.error('Error playing chat message notification sound:', error);
+        });
+    }
+
+    // Обновляем unread label
+    updateUnreadLabel(data.unread_total);
+
+    addNotify({
+        id: data.id,
+        chatId: data.chat?.id,
+        createdAt: data.created_at,
+        unread: data.chat.unread_count,
+        message: data.text,
+        status: 'new_message',
+        userName: data.user.name,
+        toastEnabled: data.toast_enabled,
+    })
+}
+
+/**
+* Удаление уведомления из DOM
+* @param {HTMLElement} button - Кнопка, при нажатии на которую вызывается функция
+* Кнопка используется для поиска родительского элемента с классом 'notify-card'
+*/
+function removeAlfaCRMChatNotification(button) {
+    // Находим родительский элемент с классом "notify-card", к которому относится нажатая кнопка
+    var notifyCard = button.closest('#alfa-crm-chat-notify-card');
+
+    // Получаем ID уведомления
+    const notificationId = notifyCard.getAttribute('data-id');
+
+    // Удаляем элемент из DOM
+    if (notifyCard) {
+      notifyCard.remove();
+    }
+
+    // Очищаем таймер для конкретного уведомления
+    if (chatNotificationTimers[notificationId]) {
+      clearTimeout(chatNotificationTimers[notificationId]);
+      delete chatNotificationTimers[notificationId]; // Удаляем таймер из объекта
+    }
+}
+
+/**
+* Должен быть какой то уникальный id для фиксирования отображения
+* @var data {id: string, createdAt: string}
+* */
+function addNotify(data) {
+    if (!data.toastEnabled) {
+        return;
+    }
+    
+    var newNotify = false;
+    // Ищем уже существующий элемент
+    var notifyCard = notificationWrapper.find('.notify-card[data-id=' + data.id + ']');
+
+    // Если не нашли, создаем карточку клонированием
+    if (notifyCard.length === 0) {
+        notifyCard = $('#notifications-panel > .notify-card').clone();
+        newNotify = true;
+    }
+
+    var timestamp = moment(data.createdAt).format('HH:mm');
+
+    notifyCard.attr('data-id', data.id);
+    notifyCard.removeClass('alerting active released missed');
+    notifyCard.find('.notify-status-name').text(textNewMessage);
+
+    notifyCard
+        .find('.notify-description, .notify-name-url, .notify-url')
+        .hide();
+
+    var name = data.userName || '';
+    var url = urlChat + '?chat_id=' + data.chatId;
+    var message = data.message || '';
+
+    if (name && url) {
+        notifyCard.find('.notify-name-url').show().find('a').attr('href', url).html(name);
+    } else if (url) {
+        notifyCard.find('.notify-url').show().find('a').attr('href', url);
+    }
+
+    if (message) {
+        notifyCard.find('.notify-description').show().text(message);
+    }
+
+    if (newNotify) {
+        notificationWrapper.append(notifyCard);
+        focusOnWindow(textNewMessage, 2); // Входящий контакт
+        notifyCard.show();
+    }
+
+    notificationPanel.show();
+
+    // Добавляем обработчик onclick для кнопки закрытия
+    notifyCard.find('.close').on('click', function() {
+        removeAlfaCRMChatNotification(this);
+    });
+
+    // Запускаем таймер удаления уведомления через 3 секунды после добавления
+    // chatNotificationTimerId берется из глобальной области видимости, снизу в теге "script"
+    chatNotificationTimerId = setTimeout(() => {
+        // Вызываем функцию удаления, передавая элемент кнопки
+        removeAlfaCRMChatNotification(notifyCard.find('.close')[0]);
+    }, 3000);
+}
+
+
+/**
+* Управление морганием окна при уведомлении
+* @param title
+* @param count
+*/
+function focusOnWindow(title, count)
+{
+    if (focusOnWindowActive) {
+        return;
+    }
+    focusOnWindowActive = true;
+
+    var show = [ title, '************', window.document.title, '************' ];
+    var focusTimer;
+    var i = 0;
+
+    function stopBlinking()
+    {
+      clearInterval(focusTimer);
+      window.document.title = show[2];
+      focusOnWindowActive = false;
+    }
+
+    function blinkByTheTitle()
+    {
+        window.document.title = show[i++ % 4];
+        if (i > count*4)
+            stopBlinking();
+    }
+
+    $(window).on('focus', stopBlinking);
+    blinkByTheTitle();
+    setInterval(blinkByTheTitle, 1000);
+}
+});</script>
+
+
+
+<script type="text/javascript">
+
+    const appServerKey = "BHmV9k9aY0V-bw62ZfFmQMdrY6B2Jttyg5oKL749RYNmTo39KUDmS7-ms-OH70XQb5jqMDON2T7Bd2m3HH8G9eA"
+
+
+    
+    </script>
+        <!-- HELPDESKEDDY WIDGETS START -->
     
 
-</body></html>
+    <script src="//cdn5.helpdeskeddy.com//js/contact-widget.js" data-comment="%7B%22instance%22%3A%22wellkid.s20.online%22%2C%22roles%22%3A%7B%223%22%3A%22%5Cu041f%5Cu0435%5Cu0434%5Cu0430%5Cu0433%5Cu043e%5Cu0433%22%7D%2C%22email%22%3A%22sagittarius3021%40gmail.com%22%2C%22phone%22%3A%22%2B7%28705%29308-93-31%22%2C%22is_paid%22%3Atrue%2C%22expired_at%22%3A%2202.08.2026%22%2C%22segment%22%3A%22A%22%2C%22rank%22%3A99%2C%22active_customers%22%3A%22368%22%7D" id="hde-contact-widget" data-user-name="Бутаков Лев Юрьевич" data-user-email="sagittarius3021@gmail.com" data-assets-host="//cdn5.helpdeskeddy.com/" data-host="alfacrm.helpdeskeddy.com" data-lang="ru" defer="" data-id="b2e65725-5032-414a-a5f0-354ee9d5d6c6"></script><script src="//alfacrm.helpdeskeddy.com/custom/contact-widget-config.js" id="hde-contact-widget-config" defer=""></script>
+    <!-- HELPDESKEDDY WIDGETS END -->
+
+    
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            
+            const apiKey = '45c879d060df48ab94edb723d97f4a44';
+            const userId = '83';
+            const connectOptions = {
+                path: '/ws-counters/',
+                transports: ['websocket', 'polling']
+            };
+
+            if (apiKey) {
+                fetch(`https://integrations.wazzup24.ru/counters/ws_host/api_v3/${apiKey}`)
+                    .then((response) => response.json())
+                    .then((data) => {
+                        const {host} = data;
+                        const client = io(`https://${host}`, connectOptions);
+
+                        client.on('connect', () => {
+                            client.emit('counterConnecting', {type: 'api_v3', apiKey, userId});
+                        });
+
+                        client.on('counterConnected', () => console.log('Connected to Wazzup notifications!'));
+
+                        client.on('counterUpdate', (data) => {
+                            const {counter} = data;
+
+                            document.querySelectorAll('.wazzup-message-counter').forEach((i) => {
+                                i.innerText = counter
+
+                                if (counter) {
+                                    i.style.display = 'inline'
+                                } else {
+                                    i.style.display = 'none'
+                                }
+                            })
+                        });
+
+                    })
+                    .catch((error) => {
+                        console.log('Wazzup counter connection error: ', error)
+                    });
+            }
+        })
+    </script>
+    <style>
+        .wazzup24-frame {
+            width: 100%;
+            height: calc(100vh - 105px);
+        }
+
+        .wazzup24-frame-card {
+            width: 100%;
+            height: 600px;
+        }
+
+        @media (max-width: 780px) {
+            .wazzup24-frame {
+                height: calc(100vh - 200px);
+            }
+
+            .wazzup24-frame-card {
+                height: 600px;
+            }
+        }
+    </style>
+
+
+
+
+<ul id="ui-id-1" tabindex="0" class="ui-menu ui-widget ui-widget-content ui-autocomplete ui-front" style="display: none;"></ul><div role="status" aria-live="assertive" aria-relevant="additions" class="ui-helper-hidden-accessible"></div><ul id="ui-id-2" tabindex="0" class="ui-menu ui-widget ui-widget-content ui-autocomplete ui-front" style="display: none;"></ul><div role="status" aria-live="assertive" aria-relevant="additions" class="ui-helper-hidden-accessible"></div><div id="hde-contact-chat-container-1" style="position: absolute; z-index: 2147483647; right: 314px; bottom: 0%;"><script type="text/javascript" src="//cdn5.helpdeskeddy.com//js/modules/chat_widget/hde.js?v=3" id="hde-chat-widget" data-lang="ru" data-host="alfacrm.helpdeskeddy.com" data-comment="%7B%22instance%22%3A%22wellkid.s20.online%22%2C%22roles%22%3A%7B%223%22%3A%22%5Cu041f%5Cu0435%5Cu0434%5Cu0430%5Cu0433%5Cu043e%5Cu0433%22%7D%2C%22email%22%3A%22sagittarius3021%40gmail.com%22%2C%22phone%22%3A%22%2B7%28705%29308-93-31%22%2C%22is_paid%22%3Atrue%2C%22expired_at%22%3A%2202.08.2026%22%2C%22segment%22%3A%22A%22%2C%22rank%22%3A99%2C%22active_customers%22%3A%22368%22%7D" data-user-name="Бутаков Лев Юрьевич" data-user-email="sagittarius3021@gmail.com" data-id="b2e65725-5032-414a-a5f0-354ee9d5d6c6" data-custom-container="hde-contact-chat-container-1" data-custom-button="hde-chat-init-btn-1" data-position="bottom-right" data-width="300" data-height="400"></script><div id="hde-container" style="overflow: hidden; width: 90px; height: 90px; inset: auto 0px 0px auto;"><style>
+  #hde-iframe {width:100%;height:100%;border:0;border-top-left-radius:5px;}
+  #hde-chat-container {height:450px;width:350px;padding:0;visibility:hidden;overflow:hidden;border-radius:5px;}
+  #hde-container {border-radius:5px;height:450px;width:350px;padding:0;position:fixed;z-index:214748364;user-select:none;display:none;}
+  #hde-chat-button {padding:0;position:absolute;color:#fff;margin:0;height:90px;width:100%;cursor:pointer;user-select:none;display:block;}
+  @media only screen and (max-device-width: 481px){
+    .hde-container-mobile #hde-iframe {border-top-left-radius:0}
+    .hde-container-mobile #hde-chat-container {border-radius:0;width:100%;height:100%;}
+    #hde-container.hde-container-mobile  {margin:0;width:100%;height:100%;}
+  }
+  </style><div id="hde-chat-button"></div><div id="hde-chat-container" style="width: 90px; height: 90px;"></div></div></div><div id="hde-contact-container" style="visibility: visible; height: auto; width: auto; position: fixed; z-index: 999999999; letter-spacing: normal; user-select: none; right: 2%; bottom: 2%;"><div id="hde-contact-container-size" style="font-size: 17px;"><div id="hde-contact-open-btn" style="background: rgb(14, 192, 230); width: 1em; height: 1em; padding: 0.5em; line-height: 2em; text-align: center; border-radius: 50%; animation: 2s ease 0s infinite normal none running hde-contact-pulse; cursor: pointer; font-size: 1em; box-shadow: rgba(0, 0, 0, 0.5) 0px 0px 0.5em 0px;"><svg version="1.1" id="hde-contact-show" style="display:block" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px" viewBox="0 0 363 363" xml:space="preserve" fill="#FFFFFF"> <path d="M277.73,94.123c0,10.997-8.006,17.685-13.852,22.593c-2.214,1.859-6.335,5.251-6.324,6.518 c0.04,4.97-3.956,8.939-8.927,8.939c-0.025,0-0.05,0-0.075,0c-4.936,0-8.958-3.847-8.998-8.792 c-0.079-9.747,7.034-15.584,12.75-20.383c4.485-3.766,7.426-6.416,7.426-8.841c0-4.909-3.994-8.903-8.903-8.903 c-4.911,0-8.906,3.994-8.906,8.903c0,4.971-4.029,9-9,9s-9-4.029-9-9c0-14.834,12.069-26.903,26.904-26.903 C265.661,67.253,277.73,79.288,277.73,94.123z M248.801,140.481c-4.971,0-8.801,4.029-8.801,9v0.069 c0,4.971,3.831,8.966,8.801,8.966s9-4.064,9-9.035S253.772,140.481,248.801,140.481z M67.392,203.174c-4.971,0-9,4.029-9,9 s4.029,9,9,9h0.75c4.971,0,9-4.029,9-9s-4.029-9-9-9H67.392z M98.671,203.174c-4.971,0-9,4.029-9,9s4.029,9,9,9h0.749 c4.971,0,9-4.029,9-9s-4.029-9-9-9H98.671z M363,59.425v101.301c0,23.985-19.232,43.448-43.217,43.448H203.066 c-2.282,0-4.161-0.013-5.733-0.046c-1.647-0.034-3.501-0.047-4.224,0.033c-0.753,0.5-2.599,2.191-4.378,3.83 c-0.705,0.649-1.503,1.363-2.364,2.149l-33.022,30.098c-2.634,2.403-6.531,3.025-9.793,1.587c-3.262-1.439-5.552-4.669-5.552-8.234 v-95.417H43.72c-14.062,0-25.72,11.523-25.72,25.583v101.301c0,14.061,11.659,25.116,25.72,25.116h130.374 c2.245,0,4.345,1.031,6.003,2.545L207,317.523v-85.539c0-4.971,4.029-9,9-9s9,4.029,9,9v105.938c0,3.565-2.04,6.747-5.303,8.186 c-1.167,0.515-2.339,0.718-3.566,0.718c-2.204,0-4.378-0.905-6.069-2.449l-39.457-36.204H43.72c-23.986,0-43.72-19.13-43.72-43.116 V163.757c0-23.985,19.734-43.583,43.72-43.583H138V59.425c0-23.986,19.885-43.251,43.871-43.251h137.913 C343.768,16.174,363,35.439,363,59.425z M345,59.425c0-14.061-11.157-25.251-25.217-25.251H181.871 C167.81,34.174,156,45.364,156,59.425v69.833v83.934l18.095-16.353c0.838-0.765,1.777-1.465,2.462-2.097 c8.263-7.614,10.377-8.831,21.155-8.609c1.47,0.031,3.221,0.042,5.354,0.042h116.717c14.06,0,25.217-11.388,25.217-25.448V59.425z"></path> <g> </g> <g> </g> <g> </g> <g> </g> <g> </g> <g> </g> <g> </g> <g> </g> <g> </g> <g> </g> <g> </g> <g> </g> <g> </g> <g> </g> <g> </g> </svg> <svg version="1.1" id="hde-contact-hide" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px" viewBox="0 0 512.001 512.001" style="enable-background:new 0 0 512.001 512.001; display:none;" xml:space="preserve" fill="#FFFFFF"> <g> <g> <path d="M284.286,256.002L506.143,34.144c7.811-7.811,7.811-20.475,0-28.285c-7.811-7.81-20.475-7.811-28.285,0L256,227.717 L34.143,5.859c-7.811-7.811-20.475-7.811-28.285,0c-7.81,7.811-7.811,20.475,0,28.285l221.857,221.857L5.858,477.859 c-7.811,7.811-7.811,20.475,0,28.285c3.905,3.905,9.024,5.857,14.143,5.857c5.119,0,10.237-1.952,14.143-5.857L256,284.287 l221.857,221.857c3.905,3.905,9.024,5.857,14.143,5.857s10.237-1.952,14.143-5.857c7.811-7.811,7.811-20.475,0-28.285 L284.286,256.002z"></path> </g> </g> <g> </g> <g> </g> <g> </g> <g> </g> <g> </g> <g> </g> <g> </g> <g> </g> <g> </g> <g> </g> <g> </g> <g> </g> <g> </g> <g> </g> <g> </g> </svg></div><ul id="hde-contact-list" style="list-style: none; margin: 0px; padding: 0px; top: 0px; right: 0px;"><li style="background: rgb(246, 228, 255);"><span id="hde-chat-init-btn-1"><svg viewBox="0 -38 512 512" xmlns="http://www.w3.org/2000/svg" width="17px" height="17px" fill="#fff"><path d="m492 0h-396c-11.046875 0-20 8.953125-20 20v55.996094h-56c-11.046875 0-20 8.953125-20 20v235.988281c0 11.042969 8.953125 19.996094 20 19.996094h56v64c0 17.257812 20.476562 26.398437 33.324219 14.910156l88.308593-78.910156h218.367188c11.046875 0 20-8.953125 20-19.996094v-56h56c11.046875 0 20-8.953125 20-19.996094v-235.988281c0-11.046875-8.953125-20-20-20zm-96 311.984375h-206c-4.914062 0-9.660156 1.808594-13.324219 5.085937l-60.675781 54.214844v-39.304687c0-11.042969-8.953125-19.996094-20-19.996094h-56v-195.992187h356zm76-75.996094h-36v-139.992187c0-11.046875-8.953125-20-20-20h-300v-36h356zm-396-61.332031c0-11.046875 8.953125-20 20-20h240c11.046875 0 20 8.953125 20 20s-8.953125 20-20 20h-240c-11.046875 0-20-8.953125-20-20zm0 78.664062c0-11.042968 8.953125-20 20-20h160c11.046875 0 20 8.957032 20 20 0 11.046876-8.953125 20-20 20h-160c-11.046875 0-20-8.953124-20-20zm0 0"></path></svg></span></li><li style="background: rgb(45, 8, 95);"><a href="https://max.ru/id5404029565_bot" target="_blank"><svg version="1.1" xmlns="http://www.w3.org/2000/svg" width="17px" height="17px" fill="#fff" viewBox="0 0 1024 1024"> <g id="icomoon-ignore"> </g> <path d="M523.459 1021.074c-100.206 0-146.773-14.629-227.718-73.143-51.2 65.829-213.333 117.272-220.404 29.257 0-66.072-14.629-121.905-31.208-182.857-19.749-75.093-42.179-158.72-42.179-279.893 0-289.402 237.47-507.124 518.827-507.124 281.6 0 502.248 228.45 502.248 509.806 0.002 0.509 0.003 1.111 0.003 1.714 0 276.442-223.339 500.72-499.424 502.24l-0.145 0.001zM527.604 257.463c-137.021-7.070-243.81 87.771-267.459 236.495-19.505 123.124 15.116 273.067 44.617 280.869 14.141 3.413 49.737-25.356 71.924-47.543 34.82 24.331 77.155 40.282 122.94 44.069l0.915 0.061c3.742 0.192 8.125 0.301 12.534 0.301 137.921 0 250.845-107.030 260.243-242.563l0.045-0.816c0.127-3.036 0.199-6.599 0.199-10.179 0-138.83-108.445-252.332-245.246-260.416l-0.713-0.034z"></path> </svg></a></li></ul></div><style>@-webkit-keyframes hde-contact-pulse { 0% { -webkit-box-shadow: 0 0 0 0 rgba(0,0,0, 0.5); transform: scale(1.05, 1.05); } 50% { -webkit-box-shadow: 0 0 0 .5em rgba(0,0,0, 0); transform: scale(1.0, 1.0); } 100% { -webkit-box-shadow: 0 0 0 0 rgba(0,0,0, 0); } } @keyframes hde-contact-pulse { 0% { -moz-box-shadow: 0 0 0 0 rgba(0,0,0, 0.5); box-shadow: 0 0 0 0 rgba(0,0,0, 0.5); transform: scale(1.05, 1.05); } 50% { -moz-box-shadow: 0 0 0 0.5em rgba(0,0,0, 0); box-shadow: 0 0 0 0.5em rgba(0,0,0, 0); transform: scale(1.0, 1.0); } 100% { -moz-box-shadow: 0 0 0 0 rgba(0,0,0, 0); box-shadow: 0 0 0 0 rgba(0,0,0, 0); } } @-ms-keyframes hde-contact-pulse { 0% { -ms-box-shadow: 0 0 0 0 rgba(0,0,0, 0.5); box-shadow: 0 0 0 0 rgba(0,0,0, 0.5); -ms-transform: scale(1.05, 1.05); } 50% { -ms-box-shadow: 0 0 0 0.5em rgba(0,0,0, 0); box-shadow: 0 0 0 0.5em rgba(0,0,0, 0); -ms-transform: scale(1.0, 1.0); } 100% { -ms-box-shadow: 0 0 0 0 rgba(0,0,0, 0); box-shadow: 0 0 0 0 rgba(0,0,0, 0); } } #hde-contact-container #hde-contact-list li{ background:blue; color:#fff; width: 2em; height: 2em; text-align:center; -webkit-border-radius: 50%; -moz-border-radius: 50%; border-radius: 50%; cursor:pointer; position:absolute; display:none; -webkit-box-shadow: 0 0 0.5em 0 rgba(0,0,0,0.5); -moz-box-shadow: 0 0 0.5em 0 rgba(0,0,0,0.5); box-shadow: 0 0 0.5em 0 rgba(0,0,0,0.5); overflow:hidden; } #hde-contact-container #hde-contact-list li a, #hde-contact-container #hde-contact-list li span{ padding:0.475em; line-height: 1em; float: left; padding:.5em; font-size:1em; cursor:pointer; } #hde-contact-container *{ -webkit-box-sizing: unset !important; -moz-box-sizing: unset !important; box-sizing: unset !important; } #hde-contact-container svg{ max-width: none !important; max-height: none !important; height: auto !important; vertical-align: baseline !important;}</style></div></body></html>

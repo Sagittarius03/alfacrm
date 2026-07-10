@@ -49,88 +49,104 @@ class AlfaCRMApi:
         self.driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
         
     def login(self):
-        if self.is_logged_in:
-            return True
-            
-        try:
-            saved_cookies = self.db.get_session_cookies() if hasattr(self, 'db') else []
-            if saved_cookies:
-                print(f"Попытка восстановления сессии для {self.crm_type}...")
+        """Асинхронный вход с блокировкой и восстановлением сессии"""
+        with self.lock:
+            if self.is_logged_in:
+                return True
+                
+            try:
+                # Пытаемся восстановить сессию
+                saved_cookies = self.db.get_session_cookies(self.crm_type) if hasattr(self, 'db') else []
+                if saved_cookies:
+                    print(f"Попытка восстановления сессии для {self.crm_type}...")
+                    if not self.driver:
+                        self.setup_driver()
+                    self.driver.get(self.config['site_url'])
+                    # Фильтруем куки по домену
+                    current_domain = self.config['site_url'].replace('https://', '').replace('http://', '').split('/')[0]
+                    for cookie in saved_cookies:
+                        if cookie.get('domain') and current_domain not in cookie['domain']:
+                            print(f"Пропускаем cookie {cookie.get('name')} с доменом {cookie.get('domain')} (не подходит для {current_domain})")
+                            continue
+                        try:
+                            clean_cookie = {k: v for k, v in cookie.items() if k in ['name', 'value', 'domain', 'path', 'expiry', 'httpOnly', 'secure']}
+                            if 'expiry' in clean_cookie and isinstance(clean_cookie['expiry'], str):
+                                clean_cookie['expiry'] = int(clean_cookie['expiry'])
+                            self.driver.add_cookie(clean_cookie)
+                        except Exception as e:
+                            print(f"Ошибка добавления cookie {cookie.get('name')}: {e}")
+                    self.driver.refresh()
+                    time.sleep(2)
+                    if self.check_login_success():
+                        self.is_logged_in = True
+                        print(f"Сессия восстановлена для {self.crm_type}")
+                        return True
+                    else:
+                        print(f"Сохранённая сессия для {self.crm_type} недействительна, выполняем полный вход")
+                
+                # Полный вход
                 if not self.driver:
                     self.setup_driver()
+                print(f"Логин на {self.config['site_url']} ({self.crm_type})")
                 self.driver.get(self.config['site_url'])
-                for cookie in saved_cookies:
-                    try:
-                        clean_cookie = {k: v for k, v in cookie.items() if k in ['name', 'value', 'domain', 'path', 'expiry', 'httpOnly', 'secure']}
-                        if 'expiry' in clean_cookie and isinstance(clean_cookie['expiry'], str):
-                            clean_cookie['expiry'] = int(clean_cookie['expiry'])
-                        self.driver.add_cookie(clean_cookie)
-                    except Exception as e:
-                        print(f"Ошибка добавления cookie {cookie.get('name')}: {e}")
-                self.driver.refresh()
-                time.sleep(2)
-                if self.check_login_success():
-                    self.is_logged_in = True
-                    print(f"Сессия восстановлена для {self.crm_type}")
-                    return True
+                WebDriverWait(self.driver, 15).until(
+                    EC.presence_of_element_located((By.ID, "login-form"))
+                )
+                username_field = self.driver.find_element(By.ID, "loginform-username")
+                password_field = self.driver.find_element(By.ID, "loginform-password")
+                username_field.clear()
+                username_field.send_keys(self.config['username'])
+                password_field.clear()
+                password_field.send_keys(self.config['password'])
+                
+                # Устанавливаем галочку "Запомнить меня"
+                try:
+                    remember_me = self.driver.find_element(By.ID, "loginform-rememberme")
+                    if not remember_me.is_selected():
+                        remember_me.click()
+                except:
+                    pass
+                
+                submit_button = self.driver.find_element(By.CSS_SELECTOR, "button[name='login-button']")
+                submit_button.click()
+                time.sleep(5)  # Увеличенное время ожидания
+                
+                if self.check_2fa_required():
+                    print(f"Требуется код подтверждения для {self.crm_type}")
+                    code = self.get_verification_code()
+                    if not code:
+                        print("Введите код вручную:")
+                        code = input("Код: ").strip()
+                    if code and self.enter_2fa_code(code):
+                        self.is_logged_in = True
+                        print(f"Успешный вход с 2FA для {self.crm_type}")
+                    else:
+                        print("Ошибка ввода кода")
+                        return False
                 else:
-                    print(f"Сохранённая сессия для {self.crm_type} недействительна, выполняем полный вход")
-            
-            if not self.driver:
-                self.setup_driver()
-            print(f"Логин на {self.config['site_url']} ({self.crm_type})")
-            self.driver.get(self.config['site_url'])
-            WebDriverWait(self.driver, 10).until(
-                EC.presence_of_element_located((By.ID, "login-form"))
-            )
-            username_field = self.driver.find_element(By.ID, "loginform-username")
-            password_field = self.driver.find_element(By.ID, "loginform-password")
-            username_field.clear()
-            username_field.send_keys(self.config['username'])
-            password_field.clear()
-            password_field.send_keys(self.config['password'])
-            
-            try:
-                remember_me = self.driver.find_element(By.ID, "loginform-rememberme")
-                if not remember_me.is_selected():
-                    remember_me.click()
-            except:
-                pass
-            
-            submit_button = self.driver.find_element(By.CSS_SELECTOR, "button[name='login-button']")
-            submit_button.click()
-            time.sleep(3)
-            
-            if self.check_2fa_required():
-                print(f"Требуется код подтверждения для {self.crm_type}")
-                code = self.get_verification_code()
-                if not code:
-                    print("Введите код вручную:")
-                    code = input("Код: ").strip()
-                if code and self.enter_2fa_code(code):
-                    self.is_logged_in = True
-                    print(f"Успешный вход с 2FA для {self.crm_type}")
-                else:
-                    print("Ошибка ввода кода")
-                    return False
-            else:
-                if self.check_login_success():
-                    self.is_logged_in = True
-                    print(f"Успешный вход для {self.crm_type}")
-                else:
-                    print(f"Не удалось войти для {self.crm_type}")
-                    return False
-            
-            if self.is_logged_in and hasattr(self, 'db'):
-                cookies = self.driver.get_cookies()
-                self.db.save_session_cookies(cookies)
-                print(f"Сессия сохранена для {self.crm_type}")
-            
-            return self.is_logged_in
-            
-        except Exception as e:
-            print(f"Ошибка при входе для {self.crm_type}: {e}")
-            return False
+                    if self.check_login_success():
+                        self.is_logged_in = True
+                        print(f"Успешный вход для {self.crm_type}")
+                    else:
+                        # Проверяем, не остались ли мы на странице входа
+                        try:
+                            error = self.driver.find_element(By.CSS_SELECTOR, ".alert-danger")
+                            print(f"Ошибка входа: {error.text}")
+                        except:
+                            pass
+                        print(f"Не удалось войти для {self.crm_type}")
+                        return False
+                
+                if self.is_logged_in and hasattr(self, 'db'):
+                    cookies = self.driver.get_cookies()
+                    self.db.save_session_cookies(cookies, self.crm_type)
+                    print(f"Сессия сохранена для {self.crm_type}")
+                
+                return self.is_logged_in
+                
+            except Exception as e:
+                print(f"Ошибка при входе для {self.crm_type}: {e}")
+                return False
     
     def check_2fa_required(self):
         try:
@@ -356,22 +372,75 @@ class AlfaCRMApi:
             
     def parse_api_lesson(self, data):
         try:
-            status_map = {1: 'scheduled', 2: 'cancelled', 3: 'completed'}
-            status = status_map.get(data.get('status'), 'scheduled')
-            type_map = {1: 'individual', 2: 'group', 3: 'trial', 4: 'tech_support'}
-            lesson_type = type_map.get(data.get('type'), 'unknown')
+            status_map = {
+                '1': 'scheduled',
+                '2': 'cancelled',
+                '3': 'completed'
+            }
+            status = status_map.get(str(data.get('status')), 'scheduled')
             
-            customer_id = None
+            type_map = {
+                '1': 'individual',
+                '2': 'group',
+                '3': 'trial',
+                '4': 'tech_support',
+                '5': 'trial'
+            }
+            lesson_type = type_map.get(str(data.get('type')), 'unknown')
+            
+            # Извлечение учеников
             customers = data.get('customers', {})
-            print(f"Урок {data.get('id')}: status={status}, type={lesson_type}, crm_type={self.crm_type}")
+            students = []
+            customer_id = None
+            client_names_clean = []  # для чистых имён, если нужен fallback
+            
             if isinstance(customers, dict):
-                customer_ids = list(customers.keys())
-                customer_id = customer_ids[0] if customer_ids else None
+                for cid, name_html in customers.items():
+                    clean_name = re.sub(r'<[^>]+>', '', name_html).strip()
+                    is_cancelled = '<strike' in name_html
+                    pause_match = re.search(r'\(пауза\s+([^)]+)\)', name_html)
+                    is_paused = bool(pause_match)
+                    pause_info = pause_match.group(1) if pause_match else None
+                    students.append({
+                        'id': cid,
+                        'name': clean_name,
+                        'is_cancelled': is_cancelled,
+                        'is_paused': is_paused,
+                        'pause_info': pause_info,
+                    })
+                    client_names_clean.append(clean_name)
+                if students:
+                    customer_id = students[0]['id']
             elif isinstance(customers, list):
-                for c in customers:
-                    if isinstance(c, dict) and 'id' in c:
-                        customer_id = c['id']
-                        break
+                for item in customers:
+                    if isinstance(item, dict):
+                        cid = item.get('id')
+                        name_html = item.get('name', '')
+                        clean_name = re.sub(r'<[^>]+>', '', name_html).strip()
+                        is_cancelled = '<strike' in name_html
+                        pause_match = re.search(r'\(пауза\s+([^)]+)\)', name_html)
+                        is_paused = bool(pause_match)
+                        pause_info = pause_match.group(1) if pause_match else None
+                        students.append({
+                            'id': cid,
+                            'name': clean_name,
+                            'is_cancelled': is_cancelled,
+                            'is_paused': is_paused,
+                            'pause_info': pause_info,
+                        })
+                        client_names_clean.append(clean_name)
+                if students:
+                    customer_id = students[0]['id']
+            
+            # Если не нашли через customers, пробуем через title
+            if not students:
+                title = data.get('title', '')
+                clean_title = re.sub(r'<[^>]+>', '', title).strip()
+                if clean_title:
+                    # Может быть просто имя или группа
+                    students = [{'id': None, 'name': clean_title, 'is_cancelled': False, 'is_paused': False, 'pause_info': None}]
+                    client_names_clean = [clean_title]
+            
             if not customer_id:
                 customer_id = data.get('customer_id') or data.get('client_id')
             if not customer_id and data.get('link'):
@@ -379,16 +448,14 @@ class AlfaCRMApi:
                 if match:
                     customer_id = match.group(1)
             
-            client_names = []
-            if isinstance(customers, dict):
-                client_names = list(customers.values())
-            elif isinstance(customers, list):
-                client_names = [c.get('name', '') for c in customers if isinstance(c, dict)]
+            # Формируем clean client (для fallback)
+            client_clean = ', '.join(client_names_clean) if client_names_clean else data.get('title', '')
+            client_clean = re.sub(r'<[^>]+>', '', client_clean).strip()
             
+            # Время
             start_time = data.get('start', '')
             duration = data.get('duration', 0)
-            time_start_str = ''
-            time_end_str = ''
+            time_str = ''
             if start_time:
                 try:
                     dt = datetime.fromisoformat(start_time.replace('Z', '+00:00'))
@@ -401,16 +468,11 @@ class AlfaCRMApi:
                         time_str = time_start_str
                 except:
                     time_str = start_time[:5] if len(start_time) >= 5 else ''
-            else:
-                time_str = ''
-                
+            
             lesson = {
                 'id': str(data.get('id', '')),
                 'time': time_str,
-                'time_start': time_start_str,
-                'time_end': time_end_str,
-                'duration': duration,
-                'client': ', '.join(client_names) if client_names else data.get('title', ''),
+                'client': client_clean,  # теперь чистое имя
                 'subject': data.get('subject', ''),
                 'comment': data.get('note', ''),
                 'status': status,
@@ -424,6 +486,7 @@ class AlfaCRMApi:
                 'customer_id': customer_id,
                 'crm_type': self.crm_type,
                 'site_url': self.config['site_url'],
+                'students': students,
             }
             return lesson
         except Exception as e:
