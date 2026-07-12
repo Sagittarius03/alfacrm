@@ -431,7 +431,8 @@ class AlfaCRMApi:
             status_map = {
                 '1': 'scheduled',
                 '2': 'cancelled',
-                '3': 'completed'
+                '3': 'completed',
+                '4': 'rescheduled'
             }
             status = status_map.get(str(data.get('status')), 'scheduled')
             
@@ -449,19 +450,42 @@ class AlfaCRMApi:
             students = []
             customer_id = None
             
+            # Извлечение ID группы
+            group_id = data.get('group_id')
+            if not group_id and data.get('group'):
+                group_id = data.get('group')
+            if not group_id and data.get('link'):
+                group_match = re.search(r'group/view\?id=(\d+)', data.get('link', ''))
+                if group_match:
+                    group_id = group_match.group(1)
+            
+            # Извлечение названия группы
+            group_name = None
+            if data.get('group_name'):
+                group_name = data.get('group_name')
+            elif data.get('link'):
+                # Пробуем извлечь из текста
+                group_match = re.search(r'Группа\s*[:\-]?\s*([^<,\n]+)', data.get('title', ''), re.IGNORECASE)
+                if group_match:
+                    group_name = group_match.group(1).strip()
+            
             if isinstance(customers, dict):
                 for cid, name_html in customers.items():
                     clean_name = re.sub(r'<[^>]+>', '', name_html).strip()
+                    
+                    # Определяем статусы
                     is_cancelled = '<strike' in name_html
+                    is_absent = 'text-muted' in name_html or 'не спис' in name_html
+                    is_rescheduled = 'Перенос' in name_html or 'rescheduled' in name_html.lower()
                     pause_match = re.search(r'\(пауза\s+([^)]+)\)', name_html)
                     is_paused = bool(pause_match)
                     pause_info = pause_match.group(1) if pause_match else None
+                    is_completed = status == 'completed'
                     
-                    # Улучшенный поиск остатков - ищем (X ост) или (X ур) или (X осталось)
+                    # Остаток
                     balance_match = re.search(r'\((\d+)\s*(?:ост\.?|уроков?|осталось)\)', name_html, re.IGNORECASE)
                     balance = int(balance_match.group(1)) if balance_match else None
                     
-                    # Извлекаем остатки (ост., ур.) как дополнительную информацию
                     extra_match = re.search(r'\(([^)]*(?:ост\.?|уроков?|осталось)[^)]*)\)', name_html, re.IGNORECASE)
                     extra_info = extra_match.group(1) if extra_match else ''
                     
@@ -472,7 +496,12 @@ class AlfaCRMApi:
                         'is_paused': is_paused,
                         'pause_info': pause_info,
                         'extra_info': extra_info,
-                        'balance': balance  # Добавляем остаток
+                        'balance': balance,
+                        'is_rescheduled': is_rescheduled,
+                        'is_absent': is_absent,
+                        'is_completed': is_completed,
+                        'group_id': group_id,
+                        'group_name': group_name
                     }
                     students.append(student_data)
                     
@@ -495,12 +524,15 @@ class AlfaCRMApi:
                         cid = item.get('id')
                         name_html = item.get('name', '')
                         clean_name = re.sub(r'<[^>]+>', '', name_html).strip()
+                        
                         is_cancelled = '<strike' in name_html
+                        is_absent = 'text-muted' in name_html or 'не спис' in name_html
+                        is_rescheduled = 'Перенос' in name_html or 'rescheduled' in name_html.lower()
                         pause_match = re.search(r'\(пауза\s+([^)]+)\)', name_html)
                         is_paused = bool(pause_match)
                         pause_info = pause_match.group(1) if pause_match else None
+                        is_completed = status == 'completed'
                         
-                        # Улучшенный поиск остатков
                         balance_match = re.search(r'\((\d+)\s*(?:ост\.?|уроков?|осталось)\)', name_html, re.IGNORECASE)
                         balance = int(balance_match.group(1)) if balance_match else None
                         
@@ -514,7 +546,12 @@ class AlfaCRMApi:
                             'is_paused': is_paused,
                             'pause_info': pause_info,
                             'extra_info': extra_info,
-                            'balance': balance
+                            'balance': balance,
+                            'is_rescheduled': is_rescheduled,
+                            'is_absent': is_absent,
+                            'is_completed': is_completed,
+                            'group_id': group_id,
+                            'group_name': group_name
                         }
                         students.append(student_data)
                         
@@ -529,7 +566,7 @@ class AlfaCRMApi:
                         
                         if not customer_id:
                             customer_id = cid
-            # Если customer_id не найден, пытаемся из других полей
+            
             if not customer_id:
                 customer_id = data.get('customer_id') or data.get('client_id')
             if not customer_id and data.get('link'):
@@ -537,11 +574,12 @@ class AlfaCRMApi:
                 if match:
                     customer_id = match.group(1)
             
+            # Собираем имена клиентов
             client_names = []
             if isinstance(customers, dict):
-                client_names = list(customers.values())
+                client_names = [re.sub(r'<[^>]+>', '', v).strip() for v in customers.values()]
             elif isinstance(customers, list):
-                client_names = [c.get('name', '') for c in customers if isinstance(c, dict)]
+                client_names = [re.sub(r'<[^>]+>', '', c.get('name', '')).strip() for c in customers if isinstance(c, dict)]
             
             # Время
             start_time = data.get('start', '')
@@ -578,10 +616,19 @@ class AlfaCRMApi:
                 'crm_type': self.crm_type,
                 'site_url': self.config['site_url'],
                 'students': students,
+                'group_id': group_id,
+                'group_name': group_name
             }
+            
+            # Сохраняем связи в БД
+            if hasattr(self, 'db'):
+                self.save_lesson_relations(lesson, students, group_id)
+            
             return lesson
         except Exception as e:
             print(f"Ошибка парсинга API урока: {e}")
+            import traceback
+            traceback.print_exc()
             return None
         
     def parse_page_lesson(self, element, date):
@@ -594,7 +641,9 @@ class AlfaCRMApi:
             title_text = title_elem.text.strip() if title_elem else ''
             classes = element.get('class', [])
             status = 'scheduled'
-            if 'status2' in classes:
+            if 'status4' in classes or 'rescheduled' in classes:
+                status = 'rescheduled'
+            elif 'status2' in classes:
                 status = 'cancelled'
             elif 'status3' in classes:
                 status = 'completed'
@@ -682,3 +731,109 @@ class AlfaCRMApi:
                 pass
             self.driver = None
             self.is_logged_in = False
+    
+    # alfacrm_api.py - Добавляем методы для сохранения связей
+
+    # alfacrm_api.py - Добавляем методы для сохранения связей
+
+    def save_lesson_relations(self, lesson, students, group_id=None):
+        """Сохраняет связи урока с учениками и группами"""
+        try:
+            lesson_id = lesson.get('id')
+            crm_type = lesson.get('crm_type')
+            site_url = lesson.get('site_url')
+            lesson_status = lesson.get('status')
+            is_completed = lesson_status == 'completed'
+            
+            # Сохраняем группу если есть
+            if group_id and hasattr(self, 'db'):
+                # Ищем название группы
+                group_name = None
+                # Пытаемся найти в данных урока
+                if lesson.get('group_name'):
+                    group_name = lesson.get('group_name')
+                else:
+                    # Ищем в students
+                    for s in students:
+                        if s.get('group_id') == group_id and s.get('group_name'):
+                            group_name = s.get('group_name')
+                            break
+                
+                # Если все еще нет, пробуем извлечь из названия
+                if not group_name:
+                    # Пробуем извлечь из client_text
+                    client_text = lesson.get('client', '')
+                    group_match = re.search(r'групп[аы]?\s*([^\d,]+)', client_text, re.IGNORECASE)
+                    if group_match:
+                        group_name = group_match.group(1).strip()
+                    else:
+                        # Используем ID как название
+                        group_name = f"Группа #{group_id}"
+                
+                if group_name:
+                    self.db.save_group(group_id, group_name, site_url, crm_type)
+                    self.db.save_lesson_group(lesson_id, group_id)
+            
+            # Сохраняем учеников и связи
+            for student in students:
+                student_id = student.get('id')
+                student_name = student.get('name', '')
+                
+                if student_id and hasattr(self, 'db'):
+                    # Сохраняем ученика
+                    balance = student.get('balance')
+                    student_status = 'active'
+                    if student.get('is_paused'):
+                        student_status = 'paused'
+                    elif student.get('is_cancelled'):
+                        student_status = 'cancelled'
+                    
+                    self.db.save_student(
+                        student_id=student_id,
+                        name=student_name,
+                        status=student_status,
+                        balance=balance,
+                        site_url=site_url,
+                        crm_type=crm_type
+                    )
+                    
+                    # Определяем статус на уроке
+                    status_on_lesson = None
+                    extra_info = student.get('extra_info', '')
+                    pause_info = student.get('pause_info', '')
+                    
+                    # Проверяем статусы
+                    if pause_info:
+                        status_on_lesson = 'пауза'
+                    elif 'абон' in extra_info.lower() or 'спис' in extra_info.lower():
+                        status_on_lesson = 'списывать'
+                    elif 'не спис' in extra_info.lower():
+                        status_on_lesson = 'не списывать'
+                    
+                    # Получаем флаги
+                    is_cancelled = student.get('is_cancelled', False)
+                    is_paused = student.get('is_paused', False)
+                    is_absent = student.get('is_absent', False)
+                    is_rescheduled = student.get('is_rescheduled', False)
+                    is_completed_flag = is_completed
+                    
+                    # Логируем для отладки
+                    print(f"Сохранение студента {student_id}: {student_name}, статус на уроке: {status_on_lesson}, is_absent: {is_absent}")
+                    
+                    # Сохраняем связь
+                    self.db.save_lesson_student(
+                        lesson_id=lesson_id,
+                        student_id=student_id,
+                        status_on_lesson=status_on_lesson,
+                        is_cancelled=is_cancelled,
+                        is_paused=is_paused,
+                        is_absent=is_absent,
+                        is_rescheduled=is_rescheduled,
+                        is_completed=is_completed_flag,
+                        pause_info=pause_info,
+                        extra_info=extra_info
+                    )
+        except Exception as e:
+            print(f"Ошибка сохранения связей урока: {e}")
+            import traceback
+            traceback.print_exc()
