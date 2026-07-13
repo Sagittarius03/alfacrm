@@ -1,37 +1,35 @@
 # -*- coding: utf-8 -*-
 import asyncio
-import aiohttp
 import time
 import re
 from datetime import datetime, timedelta
-from typing import List, Dict, Any, Optional, Tuple
+from typing import List, Dict, Any, Optional
 from bs4 import BeautifulSoup
-from selenium import webdriver
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.chrome.options import Options
-from selenium.common.exceptions import TimeoutException, NoSuchElementException
+from playwright.async_api import async_playwright, Browser, Page
 import threading
 import hashlib
 import requests
-
-from utils.text_format import *
+import imaplib
+import email
 
 
 class AlfaCRMApiAsync:
-    """Асинхронная версия API для работы с AlfaCRM"""
+    """API для работы с AlfaCRM через Playwright"""
     
     def __init__(self, config: Dict[str, Any], crm_type: str = 'rts'):
         self.config = config
         self.crm_type = crm_type
-        self.driver = None
+        self.browser: Optional[Browser] = None
+        self.page: Optional[Page] = None
         self.is_logged_in = False
         self.lock = threading.Lock()
-        self.session = None  # aiohttp session
-        self.db = None  # БД будет установлена извне
+        self.db = None
+        self._playwright = None
+        self._2fa_code = None
+        self._2fa_event = threading.Event()
+        self._2fa_required = False
+        self._login_attempts = 0
         
-        # Встроенные селекторы
         self.selectors = {
             'username': "#loginform-username",
             'password': "#loginform-password",
@@ -47,175 +45,388 @@ class AlfaCRMApiAsync:
             'teacher': ".fc-title .ion-university",
             'schedule_url': "/teacher/1/calendar/index",
             'lesson_detail_url': "/teacher/1/calendar/fetch",
-            'popover': ".popover"
+            'popover': ".popover",
         }
     
+    def set_2fa_code(self, code: str):
+        """Устанавливает код 2FA и сигнализирует о готовности"""
+        self._2fa_code = code
+        self._2fa_event.set()
+    
+    def is_2fa_required(self) -> bool:
+        """Проверяет, требуется ли 2FA"""
+        return self._2fa_required
+    
     async def __aenter__(self):
-        """Асинхронный контекстный менеджер"""
-        self.session = aiohttp.ClientSession()
+        await self._init_browser()
         return self
     
     async def __aexit__(self, exc_type, exc_val, exc_tb):
-        """Закрытие сессии"""
-        if self.session:
-            await self.session.close()
-        self.close_driver()
+        await self.close_async()
     
-    def setup_driver(self):
-        """Настройка Selenium драйвера (синхронно)"""
-        if self.driver:
+    async def _init_browser(self):
+        """Инициализация браузера"""
+        if self.browser:
             return
         
-        chrome_options = Options()
-        chrome_options.add_argument('--headless')
-        chrome_options.add_argument('--no-sandbox')
-        chrome_options.add_argument('--disable-dev-shm-usage')
-        chrome_options.add_argument('--disable-gpu')
-        chrome_options.add_argument('--window-size=1920x1080')
-        chrome_options.add_argument('--disable-blink-features=AutomationControlled')
-        chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
-        chrome_options.add_experimental_option('useAutomationExtension', False)
-        
-        try:
-            from webdriver_manager.chrome import ChromeDriverManager
-            from selenium.webdriver.chrome.service import Service
-            service = Service(ChromeDriverManager().install())
-            self.driver = webdriver.Chrome(service=service, options=chrome_options)
-        except:
-            if self.config.get('chromedriver_path'):
-                from selenium.webdriver.chrome.service import Service
-                service = Service(self.config['chromedriver_path'])
-                self.driver = webdriver.Chrome(service=service, options=chrome_options)
-            else:
-                self.driver = webdriver.Chrome(options=chrome_options)
-        
-        self.driver.set_page_load_timeout(30)
-        self.driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+        self._playwright = await async_playwright().start()
+        self.browser = await self._playwright.chromium.launch(
+            headless=True,
+            args=[
+                '--no-sandbox',
+                '--disable-dev-shm-usage',
+                '--disable-gpu',
+                '--window-size=1920,1080',
+            ]
+        )
+        self.page = await self.browser.new_page(
+            viewport={'width': 1920, 'height': 1080}
+        )
+        print(f"✅ Браузер инициализирован для {self.crm_type}")
     
-    def close_driver(self):
-        """Закрывает драйвер"""
-        if self.driver:
+    async def close_async(self):
+        """Асинхронное закрытие браузера"""
+        if self.browser:
             try:
-                self.driver.quit()
+                await self.browser.close()
             except:
                 pass
-            self.driver = None
+            self.browser = None
+            self.page = None
             self.is_logged_in = False
+        
+        if self._playwright:
+            try:
+                await self._playwright.stop()
+            except:
+                pass
+            self._playwright = None
     
-    # ==================== СИНХРОННЫЕ МЕТОДЫ ====================
+    def close_sync(self):
+        """Синхронное закрытие браузера"""
+        try:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                loop.run_until_complete(self.close_async())
+            finally:
+                loop.close()
+        except Exception as e:
+            print(f"Ошибка закрытия браузера: {e}")
+            if self.browser:
+                try:
+                    self.browser.close()
+                except:
+                    pass
+                self.browser = None
+                self.page = None
+                self.is_logged_in = False
+            
+            if self._playwright:
+                try:
+                    self._playwright.stop()
+                except:
+                    pass
+                self._playwright = None
     
-    def login_sync(self) -> bool:
-        """Синхронный вход в систему"""
+    def close(self):
+        """Закрытие браузера (синхронно)"""
+        self.close_sync()
+    
+    async def check_2fa_required(self) -> bool:
+        """Проверяет, требуется ли 2FA"""
+        try:
+            if not self.page:
+                return False
+                
+            current_url = self.page.url
+            if '2fa' in current_url.lower() or 'verification' in current_url.lower():
+                self._2fa_required = True
+                return True
+            
+            code_selectors = [
+                "#login2faform-code",
+                "#loginform-verificationcode",
+                "input[name='code']",
+                "input[name='Login2FAForm[code]']",
+                "input[name='LoginForm[verificationcode]']"
+            ]
+            for selector in code_selectors:
+                try:
+                    element = await self.page.query_selector(selector)
+                    if element and await element.is_visible():
+                        self._2fa_required = True
+                        return True
+                except:
+                    continue
+            
+            try:
+                content = await self.page.content()
+                if re.search(r'код подтверждения|verification code|2fa|two-factor', content, re.IGNORECASE):
+                    self._2fa_required = True
+                    return True
+            except:
+                pass
+            
+            self._2fa_required = False
+            return False
+        except Exception as e:
+            print(f"Ошибка проверки 2FA: {e}")
+            self._2fa_required = False
+            return False
+    
+    async def enter_2fa_code(self, code: str) -> bool:
+        """Вводит код 2FA"""
+        try:
+            if not self.page:
+                return False
+                
+            code_selectors = [
+                "#login2faform-code",
+                "#loginform-verificationcode",
+                "input[name='code']",
+                "input[name='Login2FAForm[code]']",
+                "input[name='LoginForm[verificationcode]']"
+            ]
+            
+            code_field = None
+            for selector in code_selectors:
+                try:
+                    code_field = await self.page.wait_for_selector(selector, timeout=3000)
+                    if code_field:
+                        break
+                except:
+                    continue
+            
+            if not code_field:
+                print("❌ Не найдено поле для ввода кода")
+                return False
+            
+            await code_field.fill(code)
+            await asyncio.sleep(0.5)
+            
+            submit_selectors = [
+                "button[type='submit']",
+                "button[name='login-button']",
+                "text=Войти",
+                "text=Log in",
+                "text=Подтвердить",
+                "text=Confirm"
+            ]
+            
+            clicked = False
+            for selector in submit_selectors:
+                try:
+                    btn = await self.page.query_selector(selector)
+                    if btn and await btn.is_visible():
+                        await btn.click()
+                        clicked = True
+                        break
+                except:
+                    continue
+            
+            if not clicked:
+                await code_field.press("Enter")
+            
+            await asyncio.sleep(3)
+            
+            if await self.check_login_success():
+                return True
+            
+            try:
+                error = await self.page.query_selector(".alert-danger, .error-message")
+                if error:
+                    error_text = await error.text_content()
+                    print(f"❌ Ошибка входа после 2FA: {error_text}")
+            except:
+                pass
+            
+            return False
+            
+        except Exception as e:
+            print(f"Ошибка ввода кода 2FA: {e}")
+            return False
+    
+    async def check_login_success(self) -> bool:
+        """Проверяет успешность входа"""
+        try:
+            if not self.page:
+                return False
+                
+            current_url = self.page.url
+            if 'login' not in current_url.lower() and '2fa' not in current_url.lower():
+                return True
+            
+            selectors = [
+                ".navbar-top-links",
+                ".profile-link",
+                "#side-menu",
+                ".user-menu",
+                ".logout",
+                ".header-user",
+                ".avatar"
+            ]
+            for selector in selectors:
+                try:
+                    element = await self.page.query_selector(selector)
+                    if element and await element.is_visible():
+                        return True
+                except:
+                    continue
+            
+            return False
+        except Exception as e:
+            return False
+    
+    async def login_async(self) -> bool:
+        """Асинхронный вход в систему"""
         with self.lock:
             if self.is_logged_in:
                 return True
             
             try:
+                if not self.browser:
+                    await self._init_browser()
+                
                 # Пробуем восстановить сессию
                 saved_cookies = self.db.get_session_cookies(self.crm_type) if self.db else []
                 if saved_cookies:
-                    print(f"Попытка восстановления сессии для {self.crm_type}...")
-                    if not self.driver:
-                        self.setup_driver()
-                    self.driver.get(self.config['site_url'])
-                    current_domain = self.config['site_url'].replace('https://', '').replace('http://', '').split('/')[0]
+                    print(f"🔄 Попытка восстановления сессии для {self.crm_type}...")
+                    await self.page.goto(self.config['site_url'])
+                    
+                    playwright_cookies = []
                     for cookie in saved_cookies:
-                        if cookie.get('domain') and current_domain not in cookie['domain']:
-                            continue
-                        try:
-                            clean_cookie = {k: v for k, v in cookie.items() 
-                                          if k in ['name', 'value', 'domain', 'path', 'expiry', 'httpOnly', 'secure']}
-                            if 'expiry' in clean_cookie and isinstance(clean_cookie['expiry'], str):
-                                clean_cookie['expiry'] = int(clean_cookie['expiry'])
-                            self.driver.add_cookie(clean_cookie)
-                        except Exception as e:
-                            print(f"Ошибка добавления cookie {cookie.get('name')}: {e}")
-                    self.driver.refresh()
-                    time.sleep(2)
-                    if self.check_login_success():
-                        self.is_logged_in = True
-                        print(f"Сессия восстановлена для {self.crm_type}")
-                        return True
-                    else:
-                        print(f"Сохранённая сессия для {self.crm_type} недействительна")
+                        if cookie.get('domain'):
+                            playwright_cookies.append({
+                                'name': cookie.get('name', ''),
+                                'value': cookie.get('value', ''),
+                                'domain': cookie.get('domain', ''),
+                                'path': cookie.get('path', '/'),
+                                'expires': cookie.get('expiry'),
+                                'httpOnly': cookie.get('httpOnly', False),
+                                'secure': cookie.get('secure', False),
+                            })
+                    
+                    if playwright_cookies:
+                        await self.page.context.add_cookies(playwright_cookies)
+                        await self.page.reload()
+                        await asyncio.sleep(2)
+                        
+                        if await self.check_login_success():
+                            self.is_logged_in = True
+                            print(f"✅ Сессия восстановлена для {self.crm_type}")
+                            return True
                 
                 # Обычный логин
-                if not self.driver:
-                    self.setup_driver()
-                print(f"Логин на {self.config['site_url']} ({self.crm_type})")
-                self.driver.get(self.config['site_url'])
-                WebDriverWait(self.driver, 15).until(
-                    EC.presence_of_element_located((By.CSS_SELECTOR, self.selectors['login_form']))
-                )
-                username_field = self.driver.find_element(By.CSS_SELECTOR, self.selectors['username'])
-                password_field = self.driver.find_element(By.CSS_SELECTOR, self.selectors['password'])
-                username_field.clear()
-                username_field.send_keys(self.config['username'])
-                password_field.clear()
-                password_field.send_keys(self.config['password'])
+                print(f"🔑 Логин на {self.config['site_url']} ({self.crm_type})")
+                await self.page.goto(self.config['site_url'])
                 
                 try:
-                    remember_me = self.driver.find_element(By.ID, "loginform-rememberme")
-                    if not remember_me.is_selected():
-                        remember_me.click()
+                    await self.page.wait_for_selector(self.selectors['login_form'], timeout=15000)
+                except:
+                    if await self.check_login_success():
+                        self.is_logged_in = True
+                        return True
+                    print("❌ Не найдена форма входа")
+                    return False
+                
+                try:
+                    await self.page.fill(self.selectors['username'], self.config['username'])
+                    await self.page.fill(self.selectors['password'], self.config['password'])
+                except Exception as e:
+                    print(f"❌ Ошибка заполнения формы: {e}")
+                    return False
+                
+                try:
+                    await self.page.check("#loginform-rememberme")
                 except:
                     pass
                 
-                submit_button = self.driver.find_element(By.CSS_SELECTOR, self.selectors['submit'])
-                submit_button.click()
-                time.sleep(2)
+                await self.page.click(self.selectors['submit'])
+                await asyncio.sleep(3)
                 
-                if self.check_2fa_required():
-                    print(f"Требуется код подтверждения для {self.crm_type}")
-                    code = self.get_verification_code()
-                    if not code:
-                        print("Введите код вручную:")
-                        code = input("Код: ").strip()
-                    if code and self.enter_2fa_code(code):
-                        self.is_logged_in = True
-                        print(f"Успешный вход с 2FA для {self.crm_type}")
-                    else:
-                        print("Ошибка ввода кода")
-                        return False
+                # Проверяем 2FA
+                if await self.check_2fa_required():
+                    print(f"🔐 ТРЕБУЕТСЯ КОД ПОДТВЕРЖДЕНИЯ для {self.crm_type}")
+                    self._2fa_required = True
+                    return False
                 else:
-                    if self.check_login_success():
+                    if await self.check_login_success():
                         self.is_logged_in = True
-                        print(f"Успешный вход для {self.crm_type}")
+                        print(f"✅ Успешный вход для {self.crm_type}")
+                        if self.db:
+                            cookies = await self.page.context.cookies()
+                            self.db.save_session_cookies(cookies, self.crm_type)
+                            print(f"💾 Сессия сохранена для {self.crm_type}")
+                        return True
                     else:
                         try:
-                            error = self.driver.find_element(By.CSS_SELECTOR, ".alert-danger")
-                            print(f"Ошибка входа: {error.text}")
+                            error = await self.page.query_selector(".alert-danger")
+                            if error:
+                                error_text = await error.text_content()
+                                print(f"❌ Ошибка входа: {error_text}")
                         except:
                             pass
-                        print(f"Не удалось войти для {self.crm_type}")
                         return False
                 
-                if self.is_logged_in and self.db:
-                    cookies = self.driver.get_cookies()
-                    self.db.save_session_cookies(cookies, self.crm_type)
-                    print(f"Сессия сохранена для {self.crm_type}")
-                
-                return self.is_logged_in
-                
             except Exception as e:
-                print(f"Ошибка при входе для {self.crm_type}: {e}")
+                print(f"❌ Ошибка при входе для {self.crm_type}: {e}")
+                import traceback
+                traceback.print_exc()
                 return False
     
-    def get_teacher_groups_sync(self) -> Dict[str, str]:
-        """Синхронное получение групп через API"""
+    async def continue_login_with_2fa(self, code: str) -> bool:
+        """Продолжает вход с кодом 2FA"""
+        try:
+            if await self.enter_2fa_code(code):
+                self.is_logged_in = True
+                print(f"✅ Успешный вход с 2FA для {self.crm_type}")
+                if self.db:
+                    cookies = await self.page.context.cookies()
+                    self.db.save_session_cookies(cookies, self.crm_type)
+                    print(f"💾 Сессия сохранена для {self.crm_type}")
+                return True
+            else:
+                print(f"❌ Ошибка ввода кода для {self.crm_type}")
+                return False
+        except Exception as e:
+            print(f"❌ Ошибка при входе с 2FA: {e}")
+            return False
+    
+    def login_sync(self) -> bool:
+        """Синхронный вход"""
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            return loop.run_until_complete(self.login_async())
+        finally:
+            loop.close()
+    
+    def login(self) -> bool:
+        """Синхронный вызов (для совместимости)"""
+        return self.login_sync()
+    
+    # ========== ОСТАЛЬНЫЕ МЕТОДЫ ==========
+    
+    async def get_teacher_groups_async(self) -> Dict[str, str]:
+        """Асинхронное получение групп"""
         try:
             if not self.is_logged_in:
-                if not self.login_sync():
+                if not await self.login_async():
                     return {}
             
-            # Получаем cookies
-            cookies = self.driver.get_cookies()
+            if not self.page:
+                return {}
             
-            # Получаем CSRF токен
+            cookies = await self.page.context.cookies()
+            
+            csrf_token = None
             try:
-                csrf_token = self.driver.find_element(By.CSS_SELECTOR, self.selectors['csrf']).get_attribute('content')
+                csrf_input = await self.page.query_selector(self.selectors['csrf'])
+                if csrf_input:
+                    csrf_token = await csrf_input.get_attribute('content')
             except:
-                csrf_token = None
+                pass
             
             endpoints = [
                 f"{self.config['site_url']}/teacher/1/group/index",
@@ -232,8 +443,6 @@ class AlfaCRMApiAsync:
                 headers['X-CSRF-Token'] = csrf_token
             
             groups = {}
-            
-            # Используем requests
             session = requests.Session()
             for cookie in cookies:
                 session.cookies.set(cookie['name'], cookie['value'])
@@ -241,149 +450,76 @@ class AlfaCRMApiAsync:
             for url in endpoints:
                 try:
                     response = session.get(url, headers=headers)
-                    
                     if response.status_code == 200:
                         try:
                             data = response.json()
-                            
                             if isinstance(data, dict):
-                                possible_keys = ['groups', 'collection', 'items', 'data', 'result']
-                                for key in possible_keys:
-                                    if key in data and isinstance(data[key], list):
-                                        for item in data[key]:
-                                            if 'id' in item and ('name' in item or 'title' in item):
+                                for key, value in data.items():
+                                    if isinstance(value, list):
+                                        for item in value:
+                                            if isinstance(item, dict) and 'id' in item:
                                                 group_id = str(item.get('id'))
                                                 group_name = item.get('name') or item.get('title', '')
-                                                if group_name:
+                                                if group_name and group_id:
                                                     groups[group_name] = group_id
-                                        break
-                                
-                                if not groups:
-                                    for key, value in data.items():
-                                        if isinstance(value, dict) and 'id' in value and 'name' in value:
-                                            groups[value['name']] = str(value['id'])
-                                        elif isinstance(value, list) and len(value) > 0:
-                                            for item in value:
-                                                if isinstance(item, dict) and 'id' in item and ('name' in item or 'title' in item):
-                                                    group_name = item.get('name') or item.get('title', '')
-                                                    if group_name:
-                                                        groups[group_name] = str(item.get('id'))
-                            
                             elif isinstance(data, list):
                                 for item in data:
-                                    if isinstance(item, dict) and 'id' in item and ('name' in item or 'title' in item):
+                                    if isinstance(item, dict) and 'id' in item:
+                                        group_id = str(item.get('id'))
                                         group_name = item.get('name') or item.get('title', '')
-                                        if group_name:
-                                            groups[group_name] = str(item.get('id'))
+                                        if group_name and group_id:
+                                            groups[group_name] = group_id
                             
                             if groups:
-                                print(f"Найдено {len(groups)} групп через API для {self.crm_type}")
+                                print(f"📚 Найдено {len(groups)} групп для {self.crm_type}")
                                 break
-                                
-                        except ValueError:
-                            soup = BeautifulSoup(response.text, 'html.parser')
-                            for link in soup.select('a[href*="group/view"]'):
-                                href = link.get('href')
-                                match = re.search(r'id=(\d+)', href)
-                                if match:
-                                    group_id = match.group(1)
-                                    group_name = link.text.strip()
-                                    if group_name:
-                                        groups[group_name] = group_id
-                            if groups:
-                                break
-                                
+                        except:
+                            pass
                 except Exception as e:
-                    print(f"Ошибка при запросе к {url}: {e}")
                     continue
             
-            # Если через API не получилось, используем Selenium
-            if not groups:
-                print(f"API не вернул группы для {self.crm_type}, пробуем через Selenium...")
-                groups = self._get_groups_via_selenium_sync()
-            
-            # Сохраняем группы в БД
             if groups and self.db:
                 for group_name, group_id in groups.items():
                     existing = self.db.get_group(group_id)
                     if not existing:
-                        self.db.save_group(
-                            group_id=group_id,
-                            name=group_name,
-                            site_url=self.config['site_url'],
-                            crm_type=self.crm_type
-                        )
-                        print(f"Сохранена группа: {group_name} -> ID: {group_id}")
-                    elif existing.get('name') != group_name:
-                        self.db.save_group(
-                            group_id=group_id,
-                            name=group_name,
-                            site_url=self.config['site_url'],
-                            crm_type=self.crm_type
-                        )
-                        print(f"Обновлена группа: {group_name} -> ID: {group_id}")
+                        self.db.save_group(group_id, group_name, self.config['site_url'], self.crm_type)
             
             return groups
             
         except Exception as e:
             print(f"Ошибка получения групп: {e}")
-            import traceback
-            traceback.print_exc()
             return {}
     
-    def _get_groups_via_selenium_sync(self) -> Dict[str, str]:
-        """Получает группы через Selenium (синхронно)"""
+    def get_teacher_groups_sync(self) -> Dict[str, str]:
+        """Синхронное получение групп"""
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
         try:
-            groups = {}
-            groups_url = f"{self.config['site_url']}/teacher/1/group/index"
-            
-            if self.driver:
-                self.driver.get(groups_url)
-                WebDriverWait(self.driver, 15).until(
-                    EC.presence_of_element_located((By.CSS_SELECTOR, "a[href*='group/view']"))
-                )
-                time.sleep(2)
-                
-                html = self.driver.page_source
-                soup = BeautifulSoup(html, 'html.parser')
-                
-                for link in soup.select('a[href*="group/view"]'):
-                    href = link.get('href', '')
-                    match = re.search(r'id=(\d+)', href)
-                    if match:
-                        group_id = match.group(1)
-                        group_name = link.text.strip()
-                        if group_name and group_id:
-                            groups[group_name] = group_id
-                            print(f"Найдена группа через Selenium: {group_name} -> ID: {group_id}")
-            
-            return groups
-        except Exception as e:
-            print(f"Ошибка получения групп через Selenium: {e}")
-            return {}
+            return loop.run_until_complete(self.get_teacher_groups_async())
+        finally:
+            loop.close()
     
-    def get_lessons_from_api_sync(self, start_date: str = None, end_date: str = None) -> List[Dict]:
-        """Синхронная версия получения уроков"""
+    async def get_lessons_from_api_async(self, start_date: str = None, end_date: str = None) -> List[Dict]:
+        """Асинхронное получение уроков"""
         if not self.is_logged_in:
-            if not self.login_sync():
+            if not await self.login_async():
                 return []
         
         try:
-            # Получаем группы
-            groups_dict = self.get_teacher_groups_sync()
-            print(f"Получено {len(groups_dict)} групп для {self.crm_type}")
+            if not self.page:
+                return []
+                
+            groups_dict = await self.get_teacher_groups_async()
             
-            # Получаем cookies
-            cookies = self.driver.get_cookies()
-            session = requests.Session()
-            for cookie in cookies:
-                session.cookies.set(cookie['name'], cookie['value'])
+            cookies = await self.page.context.cookies()
             
-            # Получаем CSRF токен
+            csrf_token = None
             try:
-                csrf_token = self.driver.find_element(By.CSS_SELECTOR, self.selectors['csrf']).get_attribute('content')
+                csrf_input = await self.page.query_selector(self.selectors['csrf'])
+                if csrf_input:
+                    csrf_token = await csrf_input.get_attribute('content')
             except:
-                csrf_token = None
+                pass
             
             if not start_date:
                 start_date = datetime.now().strftime("%Y-%m-%d")
@@ -401,6 +537,9 @@ class AlfaCRMApiAsync:
             all_lessons = []
             page = 1
             total = None
+            session = requests.Session()
+            for cookie in cookies:
+                session.cookies.set(cookie['name'], cookie['value'])
             
             while True:
                 params = {'start': start_date, 'end': end_date, 'page': page}
@@ -419,311 +558,135 @@ class AlfaCRMApiAsync:
                     break
                 page += 1
             
-            # Загружаем страницу календаря для парсинга поповеров
-            calendar_url = f"{self.config['site_url']}{self.selectors['schedule_url']}"
-            self.driver.get(calendar_url)
-            WebDriverWait(self.driver, 15).until(
-                EC.presence_of_element_located((By.CLASS_NAME, "fc-view-container"))
-            )
-            time.sleep(2)
+            # Загружаем календарь
+            try:
+                await self.page.goto(f"{self.config['site_url']}{self.selectors['schedule_url']}")
+                await self.page.wait_for_selector(".fc-view-container", timeout=15000)
+                await asyncio.sleep(2)
+            except:
+                print("⚠️ Не удалось загрузить календарь")
             
             lessons = []
             for lesson_data in all_lessons:
-                lesson = self.parse_api_lesson_sync(lesson_data, groups_dict)
+                lesson = self.parse_api_lesson(lesson_data, groups_dict)
                 if lesson:
                     lesson_id = lesson.get('id')
-                    
-                    # Получаем данные из поповера
-                    popover_data = self.get_lesson_popover_data(lesson_id)
-                    if popover_data:
-                        updated_students = []
-                        for student in lesson.get('students', []):
-                            student_id = student.get('id')
-                            if student_id and student_id in popover_data:
-                                popover_student = popover_data[student_id]
-                                student['status_on_lesson'] = popover_student.get('status_on_lesson')
-                                student['is_absent'] = popover_student.get('is_absent', False)
-                                student['is_paused'] = popover_student.get('is_paused', False)
-                                student['pause_info'] = popover_student.get('pause_info')
-                                student['extra_info'] = popover_student.get('extra_info', '')
-                                student['balance'] = popover_student.get('balance')
-                                student['is_cancelled'] = popover_student.get('is_cancelled', False)
-                                student['is_rescheduled'] = popover_student.get('is_rescheduled', False)
-                            updated_students.append(student)
-                        lesson['students'] = updated_students
-                    
+                    if lesson_id:
+                        popover_data = await self._get_popover_data(lesson_id)
+                        if popover_data:
+                            for student in lesson.get('students', []):
+                                student_id = student.get('id')
+                                if student_id and student_id in popover_data:
+                                    ps = popover_data[student_id]
+                                    student.update(ps)
                     lessons.append(lesson)
             
-            print(f"Найдено {len(lessons)} уроков через API для {self.crm_type}")
+            print(f"📚 Найдено {len(lessons)} уроков для {self.crm_type}")
             return lessons
             
         except Exception as e:
-            print(f"Ошибка получения уроков через API: {e}")
-            import traceback
-            traceback.print_exc()
-            return self.get_lessons_from_page_sync(start_date, end_date)
-    
-    def get_lessons_from_page_sync(self, start_date: str = None, end_date: str = None) -> List[Dict]:
-        """Синхронная версия получения уроков со страницы"""
-        if not self.is_logged_in:
-            if not self.login_sync():
-                return []
-        
-        try:
-            if not start_date:
-                start_date = datetime.now().strftime("%Y-%m-%d")
-            
-            if not self.driver:
-                self.setup_driver()
-            
-            calendar_url = self.selectors['schedule_url']
-            full_url = f"{self.config['site_url']}{calendar_url}"
-            if not full_url.startswith('http'):
-                full_url = self.config['site_url'] + calendar_url
-            
-            self.driver.get(full_url)
-            WebDriverWait(self.driver, 15).until(
-                EC.presence_of_element_located((By.CLASS_NAME, "fc-view-container"))
-            )
-            time.sleep(2)
-            
-            soup = BeautifulSoup(self.driver.page_source, 'html.parser')
-            lessons = []
-            events = soup.select(self.selectors['lesson_container'])
-            
-            for event in events:
-                lesson = self.parse_page_lesson(event, start_date)
-                if lesson:
-                    lessons.append(lesson)
-            
-            print(f"Найдено {len(lessons)} уроков на странице")
-            return lessons
-            
-        except Exception as e:
-            print(f"Ошибка получения уроков со страницы: {e}")
+            print(f"Ошибка получения уроков: {e}")
             return []
     
-    def get_lesson_popover_data(self, lesson_id: str) -> Optional[Dict]:
-        """Получает данные о уроке из поповера (синхронно)"""
+    def get_lessons_from_api_sync(self, start_date=None, end_date=None) -> List[Dict]:
+        """Синхронное получение уроков"""
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
         try:
-            if not self.driver:
-                self.setup_driver()
-            
-            # Ищем элемент урока на странице
-            try:
-                lesson_element = self.driver.find_element(By.CSS_SELECTOR, f"[data-id='{lesson_id}']")
-            except:
+            return loop.run_until_complete(self.get_lessons_from_api_async(start_date, end_date))
+        finally:
+            loop.close()
+    
+    def get_lessons_from_api(self, start_date=None, end_date=None) -> List[Dict]:
+        """Синхронный вызов (для совместимости)"""
+        return self.get_lessons_from_api_sync(start_date, end_date)
+    
+    async def _get_popover_data(self, lesson_id: str) -> Optional[Dict]:
+        """Получение данных поповера"""
+        try:
+            if not self.page:
                 return None
-            
+                
+            lesson_element = await self.page.query_selector(f"[data-id='{lesson_id}']")
             if not lesson_element:
                 return None
             
-            # Кликаем по уроку чтобы открыть поповер
-            self.driver.execute_script("arguments[0].click();", lesson_element)
-            time.sleep(0.8)
+            await lesson_element.click()
+            await asyncio.sleep(0.5)
             
-            # Ждем появления поповера
-            try:
-                popover = WebDriverWait(self.driver, 5).until(
-                    EC.presence_of_element_located((By.CSS_SELECTOR, ".popover"))
-                )
-                popover_html = popover.get_attribute('outerHTML')
+            popover = await self.page.wait_for_selector(".popover", timeout=3000)
+            if popover:
+                popover_html = await popover.inner_html()
                 return self.parse_popover_for_students(popover_html)
-            except:
-                return None
+            
+            return None
         except Exception as e:
-            print(f"Ошибка получения поповера для урока {lesson_id}: {e}")
             return None
     
-    def parse_api_lesson_sync(self, data: Dict, groups_dict: Dict = None) -> Optional[Dict]:
-        """Синхронная версия парсинга урока"""
+    def parse_api_lesson(self, data: Dict, groups_dict: Dict = None) -> Optional[Dict]:
+        """Парсинг урока"""
         try:
-            # Маппинг статусов
-            status_map = {
-                '1': 'scheduled',
-                '2': 'cancelled',
-                '3': 'completed',
-                '4': 'rescheduled'
-            }
+            status_map = {'1': 'scheduled', '2': 'cancelled', '3': 'completed', '4': 'rescheduled'}
             status = status_map.get(str(data.get('status')), 'scheduled')
-
-            # Маппинг типов
-            type_map = {
-                '1': 'individual',
-                '2': 'group',
-                '3': 'trial',
-                '4': 'tech_support',
-                '5': 'trial'
-            }
+            
+            type_map = {'1': 'individual', '2': 'group', '3': 'trial', '4': 'tech_support', '5': 'trial'}
             lesson_type = type_map.get(str(data.get('type')), 'unknown')
-
+            
             customers = data.get('customers', {})
             students = []
             customer_id = None
-
-            # ========== ИЗВЛЕЧЕНИЕ ГРУППЫ ==========
+            
+            # Извлечение группы
             group_id = None
             group_name = None
-            topic = data.get('subject', '')
-
-            # 1. Пробуем получить group_id из данных
+            
             if data.get('group_id'):
                 group_id = str(data.get('group_id'))
-            elif data.get('group'):
-                group_id = str(data.get('group'))
-
-            # 2. Пробуем получить group_name из title
+            
             title = data.get('title', '')
             if title:
-                group_match = re.match(r'^([^\(]+)', title)
-                if group_match:
-                    potential_name = group_match.group(1).strip()
+                match = re.match(r'^([^\(]+)', title)
+                if match:
+                    potential_name = match.group(1).strip()
                     if re.search(r'[А-ЯA-Z][А-ЯA-Z0-9. ]*\d+', potential_name):
                         group_name = potential_name
-
-            # 3. Если не нашли в title, ищем в searchbuf
-            if not group_name:
-                searchbuf = data.get('searchbuf', '')
-                search_match = re.search(r'([А-ЯA-Z][А-ЯA-Z0-9. ]*\d+)', searchbuf)
-                if search_match:
-                    group_name = search_match.group(1)
-
-            # 4. Если есть group_name, ищем правильный ID в переданном словаре групп
+            
             if group_name and groups_dict:
                 if group_name in groups_dict:
                     group_id = groups_dict[group_name]
-                    print(f"Найдена группа по названию: {group_name} -> ID: {group_id}")
                 else:
-                    # Ищем частичное совпадение
                     for g_name, g_id in groups_dict.items():
                         if group_name in g_name or g_name in group_name:
                             group_id = g_id
-                            print(f"Найдена группа по частичному совпадению: {g_name} -> ID: {g_id}")
                             break
-
-            # 5. Если не нашли в groups_dict, пробуем в БД
+            
             if not group_id and group_name and self.db:
-                existing_group = self.db.get_group_by_name(group_name, self.crm_type)
-                if existing_group:
-                    group_id = existing_group.get('id')
-                    print(f"Найдена группа в БД по названию: {group_name} -> ID: {group_id}")
-
-            # 6. Если все еще нет ID - создаем временный
+                existing = self.db.get_group_by_name(group_name, self.crm_type)
+                if existing:
+                    group_id = existing.get('id')
+            
             if not group_id and group_name:
-                import hashlib
                 group_id = hashlib.md5(group_name.encode()).hexdigest()[:10]
                 if self.db:
                     self.db.save_group(group_id, group_name, self.config['site_url'], self.crm_type)
-                    print(f"Создана временная группа в БД: {group_name} -> ID: {group_id}")
-
-            # ========== ОБРАБОТКА УЧЕНИКОВ ==========
+            
+            # Обработка учеников
             if isinstance(customers, dict):
                 for cid, name_html in customers.items():
                     clean_name = re.sub(r'<[^>]+>', '', name_html).strip()
-
-                    is_cancelled = '<strike' in name_html
-                    is_absent = 'text-muted' in name_html
-                    is_rescheduled = 'Перенос' in name_html or 'rescheduled' in name_html.lower()
-                    pause_match = re.search(r'\(пауза\s+([^)]+)\)', name_html, re.IGNORECASE)
-                    is_paused = bool(pause_match)
-                    pause_info = pause_match.group(1) if pause_match else None
-                    is_completed = status == 'completed'
-
-                    balance_match = re.search(r'\((\d+)\s*(?:ост\.?|уроков?|осталось)\)', name_html, re.IGNORECASE)
-                    balance = int(balance_match.group(1)) if balance_match else None
-
-                    extra_match = re.search(r'\(([^)]*(?:ост\.?|уроков?|осталось)[^)]*)\)', name_html, re.IGNORECASE)
-                    extra_info = extra_match.group(1) if extra_match else ''
-
-                    status_on_lesson = None
-                    if 'абон' in name_html.lower():
-                        status_on_lesson = 'списывать'
-                    elif 'не спис' in name_html.lower():
-                        status_on_lesson = 'не списывать'
-                    elif pause_info:
-                        status_on_lesson = 'пауза'
-
-                    student_data = {
+                    student = {
                         'id': cid,
                         'name': clean_name,
-                        'is_cancelled': is_cancelled,
-                        'is_paused': is_paused,
-                        'pause_info': pause_info,
-                        'extra_info': extra_info,
-                        'balance': balance,
-                        'is_rescheduled': is_rescheduled,
-                        'is_absent': is_absent,
-                        'is_completed': is_completed,
                         'group_id': group_id,
-                        'status_on_lesson': status_on_lesson
+                        'group_name': group_name,
+                        'is_cancelled': '<strike' in name_html,
+                        'is_absent': 'text-muted' in name_html,
+                        'is_paused': bool(re.search(r'\(пауза', name_html, re.IGNORECASE)),
                     }
-                    students.append(student_data)
-
+                    students.append(student)
                     if not customer_id:
                         customer_id = cid
-
-            elif isinstance(customers, list):
-                for item in customers:
-                    if isinstance(item, dict):
-                        cid = item.get('id')
-                        name_html = item.get('name', '')
-                        clean_name = re.sub(r'<[^>]+>', '', name_html).strip()
-
-                        is_cancelled = '<strike' in name_html
-                        is_absent = 'text-muted' in name_html
-                        is_rescheduled = 'Перенос' in name_html or 'rescheduled' in name_html.lower()
-                        pause_match = re.search(r'\(пауза\s+([^)]+)\)', name_html, re.IGNORECASE)
-                        is_paused = bool(pause_match)
-                        pause_info = pause_match.group(1) if pause_match else None
-                        is_completed = status == 'completed'
-
-                        balance_match = re.search(r'\((\d+)\s*(?:ост\.?|уроков?|осталось)\)', name_html, re.IGNORECASE)
-                        balance = int(balance_match.group(1)) if balance_match else None
-
-                        extra_match = re.search(r'\(([^)]*(?:ост\.?|уроков?|осталось)[^)]*)\)', name_html, re.IGNORECASE)
-                        extra_info = extra_match.group(1).strip() if extra_match else ''
-
-                        status_on_lesson = None
-                        if 'абон' in name_html.lower():
-                            status_on_lesson = 'списывать'
-                        elif 'не спис' in name_html.lower():
-                            status_on_lesson = 'не списывать'
-                        elif pause_info:
-                            status_on_lesson = 'пауза'
-
-                        student_data = {
-                            'id': cid,
-                            'name': clean_name,
-                            'is_cancelled': is_cancelled,
-                            'is_paused': is_paused,
-                            'pause_info': pause_info,
-                            'extra_info': extra_info,
-                            'balance': balance,
-                            'is_rescheduled': is_rescheduled,
-                            'is_absent': is_absent,
-                            'is_completed': is_completed,
-                            'group_id': group_id,
-                            'status_on_lesson': status_on_lesson
-                        }
-                        students.append(student_data)
-
-                        if not customer_id:
-                            customer_id = cid
-
-            if not customer_id:
-                customer_id = data.get('customer_id') or data.get('client_id')
-            if not customer_id and data.get('link'):
-                match = re.search(r'customer/view\?id=(\d+)', data.get('link', ''))
-                if match:
-                    customer_id = match.group(1)
-
-            # Собираем имена клиентов
-            client_names = []
-            if isinstance(customers, dict):
-                client_names = [re.sub(r'<[^>]+>', '', v).strip() for v in customers.values()]
-            elif isinstance(customers, list):
-                client_names = [re.sub(r'<[^>]+>', '', c.get('name', '')).strip() for c in customers if isinstance(c, dict)]
-
+            
             # Время
             start_time = data.get('start', '')
             duration = data.get('duration', 0)
@@ -731,31 +694,24 @@ class AlfaCRMApiAsync:
             if start_time:
                 try:
                     dt = datetime.fromisoformat(start_time.replace('Z', '+00:00'))
-                    time_start_str = dt.strftime("%H:%M")
+                    time_start = dt.strftime("%H:%M")
                     if duration:
                         dt_end = dt + timedelta(minutes=duration)
-                        time_end_str = dt_end.strftime("%H:%M")
-                        time_str = f"{time_start_str} - {time_end_str}"
+                        time_str = f"{time_start} - {dt_end.strftime('%H:%M')}"
                     else:
-                        time_str = time_start_str
+                        time_str = time_start
                 except:
                     time_str = start_time[:5] if len(start_time) >= 5 else ''
-
-            if not topic:
-                topic = data.get('title', '')
-                if group_name and topic.startswith(group_name):
-                    topic = topic.replace(group_name, '').strip()
-                    topic = re.sub(r'\(\d+/\d+\)', '', topic).strip()
-
-            lesson = {
-                'id': str(data.get('id', f"{self.crm_type}_{datetime.now().timestamp()}")),
+            
+            return {
+                'id': str(data.get('id', '')),
                 'time': time_str,
-                'client': ', '.join(client_names) if client_names else data.get('title', ''),
+                'client': data.get('title', ''),
                 'subject': data.get('subject', ''),
-                'topic': topic,
+                'topic': data.get('subject', ''),
                 'comment': data.get('note', ''),
                 'status': status,
-                'link': f"{self.config['site_url']}{self.selectors['schedule_url']}?date={data.get('date', '')}",
+                'link': self.config['site_url'] + self.selectors['schedule_url'],
                 'teacher': data.get('teacher', ''),
                 'room': str(data.get('room', '')),
                 'type': lesson_type,
@@ -766,351 +722,26 @@ class AlfaCRMApiAsync:
                 'crm_type': self.crm_type,
                 'site_url': self.config['site_url'],
                 'students': students,
-                'group_id': group_id
+                'group_id': group_id,
+                'group_name': group_name
             }
-
-            return lesson
-
         except Exception as e:
-            print(f"Ошибка парсинга API урока: {e}")
-            import traceback
-            traceback.print_exc()
+            print(f"Ошибка парсинга: {e}")
             return None
     
-    def save_lesson_relations_sync(self, lesson: Dict, students: List[Dict], group_id: str = None):
-        """Синхронное сохранение связей урока"""
-        try:
-            lesson_id = lesson.get('id')
-            crm_type = lesson.get('crm_type')
-            site_url = lesson.get('site_url')
-            lesson_status = lesson.get('status')
-            is_completed = lesson_status == 'completed'
-
-            if not group_id:
-                group_id = lesson.get('group_id')
-
-            # Сохраняем группу если есть ID
-            if group_id and self.db:
-                existing = self.db.get_group(group_id)
-                if not existing:
-                    group_name = f"Группа #{group_id}"
-                    self.db.save_group(group_id, group_name, site_url, crm_type)
-                self.db.save_lesson_group(lesson_id, group_id)
-
-            # Сохраняем учеников и связи
-            for student in students:
-                student_id = student.get('id')
-                student_name = student.get('name', '')
-
-                if student_id and self.db:
-                    balance = student.get('balance')
-                    student_status = 'active'
-                    if student.get('is_paused'):
-                        student_status = 'paused'
-                    elif student.get('is_cancelled'):
-                        student_status = 'cancelled'
-
-                    self.db.save_student(
-                        student_id=student_id,
-                        name=student_name,
-                        status=student_status,
-                        balance=balance,
-                        site_url=site_url,
-                        crm_type=crm_type
-                    )
-
-                    status_on_lesson = student.get('status_on_lesson')
-                    extra_info = student.get('extra_info', '')
-                    pause_info = student.get('pause_info', '')
-
-                    if not status_on_lesson:
-                        if pause_info:
-                            status_on_lesson = 'пауза'
-                        elif 'абон' in extra_info.lower() or 'спис' in extra_info.lower():
-                            status_on_lesson = 'списывать'
-                        elif 'не спис' in extra_info.lower():
-                            status_on_lesson = 'не списывать'
-
-                    is_cancelled = student.get('is_cancelled', False)
-                    is_paused = student.get('is_paused', False)
-                    is_absent = student.get('is_absent', False)
-                    is_rescheduled = student.get('is_rescheduled', False)
-                    is_completed_flag = is_completed
-
-                    self.db.save_lesson_student(
-                        lesson_id=lesson_id,
-                        student_id=student_id,
-                        status_on_lesson=status_on_lesson,
-                        is_cancelled=is_cancelled,
-                        is_paused=is_paused,
-                        is_absent=is_absent,
-                        is_rescheduled=is_rescheduled,
-                        is_completed=is_completed_flag,
-                        pause_info=pause_info,
-                        extra_info=extra_info
-                    )
-
-            # Сохраняем сам урок в БД
-            if self.db:
-                self.db.save_lesson(lesson)
-                print(f"Сохранен урок {lesson_id} с {len(students)} учениками")
-
-        except Exception as e:
-            print(f"Ошибка сохранения связей урока: {e}")
-            import traceback
-            traceback.print_exc()
-
-    # ==================== АСИНХРОННЫЕ МЕТОДЫ ====================
-    
-    async def login(self, db) -> bool:
-        """Асинхронный вход в систему"""
-        # Используем синхронную версию в потоке
-        loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(None, self.login_sync)
-    
-    async def get_teacher_groups(self, db) -> Dict[str, str]:
-        """Асинхронное получение групп"""
-        loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(None, self.get_teacher_groups_sync)
-    
-    async def get_lessons_from_api(self, db, start_date: str = None, end_date: str = None) -> List[Dict]:
-        """Асинхронное получение уроков"""
-        loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(
-            None, 
-            self.get_lessons_from_api_sync, 
-            start_date, 
-            end_date
-        )
-    
-    async def get_lessons_from_page(self, db, start_date: str = None, end_date: str = None) -> List[Dict]:
-        """Асинхронное получение уроков со страницы"""
-        loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(
-            None, 
-            self.get_lessons_from_page_sync, 
-            start_date, 
-            end_date
-        )
-    
-    async def save_lesson_relations(self, lesson: Dict, students: List[Dict], group_id: str, db):
-        """Асинхронное сохранение связей"""
-        # Сохраняем ссылку на db для синхронных методов
-        self.db = db
-        loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(
-            None,
-            self.save_lesson_relations_sync,
-            lesson,
-            students,
-            group_id
-        )
-
-    # ==================== ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ ====================
-    
-    def check_2fa_required(self) -> bool:
-        """Проверяет, требуется ли 2FA"""
-        try:
-            selectors = [
-                "#login2faform-code",
-                "#loginform-verificationcode",
-                "[name='LoginForm[verificationcode]']",
-                "[name='Login2FAForm[code]']",
-                "input[name='code']",
-            ]
-            for selector in selectors:
-                try:
-                    self.driver.find_element(By.CSS_SELECTOR, selector)
-                    return True
-                except:
-                    continue
-            try:
-                self.driver.find_element(By.XPATH, "//*[contains(text(), 'код') or contains(text(), 'Код') or contains(text(), 'code')]")
-                return True
-            except:
-                pass
-            return False
-        except Exception as e:
-            print(f"Ошибка проверки 2FA: {e}")
-            return False
-    
-    def get_verification_code(self) -> Optional[str]:
-        """Получает код подтверждения из почты"""
-        if self.config.get('verification_code'):
-            return self.config['verification_code']
-        if self.config.get('email_imap'):
-            try:
-                import imaplib
-                import email
-                imap_config = self.config.get('email_imap', {})
-                if not imap_config.get('server') or not imap_config.get('email') or not imap_config.get('password'):
-                    return None
-                mail = imaplib.IMAP4_SSL(imap_config.get('server'))
-                mail.login(imap_config.get('email'), imap_config.get('password'))
-                mail.select('INBOX')
-                status, messages = mail.search(None, 'UNSEEN')
-                if status == 'OK':
-                    for num in messages[0].split()[-5:]:
-                        status, data = mail.fetch(num, '(RFC822)')
-                        if status == 'OK':
-                            msg = email.message_from_bytes(data[0][1])
-                            body = ""
-                            if msg.is_multipart():
-                                for part in msg.walk():
-                                    content_type = part.get_content_type()
-                                    content_disposition = str(part.get("Content-Disposition"))
-                                    if content_type == "text/plain" and "attachment" not in content_disposition:
-                                        body = part.get_payload(decode=True).decode('utf-8', errors='ignore')
-                                        break
-                            else:
-                                body = msg.get_payload(decode=True).decode('utf-8', errors='ignore')
-                            patterns = [
-                                r'код\s*:\s*(\d{6})',
-                                r'(\d{6})\s*[-–]\s*ваш\s*код',
-                                r'код\s+подтверждения\s*[:;]\s*(\d{6})',
-                                r'verification\s+code\s*[:;]\s*(\d{6})',
-                                r'\b(\d{6})\b'
-                            ]
-                            for pattern in patterns:
-                                code_match = re.search(pattern, body, re.IGNORECASE)
-                                if code_match:
-                                    mail.close()
-                                    mail.logout()
-                                    return code_match.group(1)
-                mail.close()
-                mail.logout()
-                return None
-            except Exception as e:
-                print(f"Ошибка получения кода из почты: {e}")
-                return None
-        return None
-    
-    def enter_2fa_code(self, code: str) -> bool:
-        """Вводит код 2FA"""
-        try:
-            code_field = None
-            selectors = [
-                "#login2faform-code",
-                "#loginform-verificationcode",
-                "[name='LoginForm[verificationcode]']",
-                "[name='Login2FAForm[code]']",
-                "input[name='code']",
-            ]
-            for selector in selectors:
-                try:
-                    code_field = WebDriverWait(self.driver, 10).until(
-                        EC.presence_of_element_located((By.CSS_SELECTOR, selector))
-                    )
-                    break
-                except:
-                    continue
-            
-            if not code_field:
-                print("Не найдено поле для ввода кода")
-                return False
-            
-            code_field.clear()
-            code_field.send_keys(code)
-            
-            submit_selectors = [
-                "button[type='submit']",
-                "button[name='login-button']",
-                "//button[contains(text(), 'Log in')]",
-                "//button[contains(text(), 'Войти')]",
-            ]
-            submit_button = None
-            for selector in submit_selectors:
-                try:
-                    if selector.startswith('//'):
-                        submit_button = self.driver.find_element(By.XPATH, selector)
-                    else:
-                        submit_button = self.driver.find_element(By.CSS_SELECTOR, selector)
-                    break
-                except:
-                    continue
-            
-            if submit_button:
-                submit_button.click()
-            else:
-                code_field.submit()
-            
-            time.sleep(2)
-            
-            for i in range(10):
-                time.sleep(1)
-                if self.check_login_success():
-                    return True
-                try:
-                    error = self.driver.find_element(By.CSS_SELECTOR, ".alert-danger, .error-message")
-                    if error.is_displayed():
-                        print(f"Ошибка входа после 2FA: {error.text}")
-                        return False
-                except:
-                    pass
-                current_url = self.driver.current_url
-                if 'login' not in current_url.lower():
-                    return True
-            
-            return False
-            
-        except Exception as e:
-            print(f"Ошибка ввода кода: {e}")
-            return False
-    
-    def check_login_success(self) -> bool:
-        """Проверяет успешность входа"""
-        try:
-            current_url = self.driver.current_url
-            if 'login' not in current_url.lower():
-                return True
-            
-            selectors = [
-                ".navbar-top-links",
-                ".profile-link",
-                "#side-menu",
-                ".teacher-menu",
-                ".user-menu",
-                ".logout",
-                ".dropdown.user-menu",
-                ".header-user",
-                ".avatar"
-            ]
-            for selector in selectors:
-                try:
-                    element = self.driver.find_element(By.CSS_SELECTOR, selector)
-                    if element.is_displayed():
-                        return True
-                except:
-                    continue
-            
-            try:
-                logout_links = self.driver.find_elements(By.XPATH, "//a[contains(text(), 'Выход') or contains(text(), 'Logout')]")
-                if logout_links and logout_links[0].is_displayed():
-                    return True
-            except:
-                pass
-            
-            return False
-        except Exception as e:
-            print(f"Ошибка проверки входа: {e}")
-            return False
-    
     def parse_popover_for_students(self, popover_html: str) -> Dict[str, Dict]:
-        """Парсит HTML поповера для получения статусов учеников"""
+        """Парсинг поповера"""
         try:
             soup = BeautifulSoup(popover_html, 'html.parser')
             students_data = {}
             
             rows = soup.find_all('div', class_='row')
-            
             for row in rows:
                 col = row.find('div', class_='col-sm-12')
                 if not col:
                     continue
                 
-                links = col.find_all('a', href=True)
-                
-                for link in links:
+                for link in col.find_all('a', href=True):
                     href = link.get('href', '')
                     if 'customer/view' not in href:
                         continue
@@ -1118,147 +749,100 @@ class AlfaCRMApiAsync:
                     id_match = re.search(r'id=(\d+)', href)
                     if not id_match:
                         continue
+                    
                     student_id = id_match.group(1)
                     link_html = str(link)
                     
                     name_span = link.find('span', class_='customer-name')
-                    if name_span:
-                        student_name = name_span.get_text(strip=True)
-                    else:
-                        student_name = link.get_text(strip=True)
-                    
-                    is_cancelled = '<strike' in link_html or 'strike' in link_html
-                    is_absent = 'text-muted' in link_html
-                    
-                    pause_match = re.search(r'\(пауза\s+([^)]+)\)', link_html, re.IGNORECASE)
-                    is_paused = bool(pause_match)
-                    pause_info = pause_match.group(1) if pause_match else None
-                    
-                    status_on_lesson = None
-                    if 'абон' in link_html.lower():
-                        status_on_lesson = 'списывать'
-                    elif 'спис' in link_html.lower() and 'не спис' not in link_html.lower():
-                        status_on_lesson = 'списывать'
-                    elif 'не спис' in link_html.lower():
-                        status_on_lesson = 'не списывать'
-                    elif pause_info:
-                        status_on_lesson = 'пауза'
-                    
-                    balance_match = re.search(r'\((\d+)\s*(?:ост\.?|уроков?|осталось)\)', link_html, re.IGNORECASE)
-                    balance = int(balance_match.group(1)) if balance_match else None
-                    
-                    extra_match = re.search(r'\(([^)]*(?:ост\.?|уроков?|осталось)[^)]*)\)', link_html, re.IGNORECASE)
-                    extra_info = extra_match.group(1) if extra_match else ''
+                    student_name = name_span.get_text(strip=True) if name_span else link.get_text(strip=True)
                     
                     students_data[student_id] = {
                         'id': student_id,
                         'name': student_name,
-                        'is_cancelled': is_cancelled,
-                        'is_paused': is_paused,
-                        'pause_info': pause_info,
-                        'extra_info': extra_info,
-                        'balance': balance,
-                        'is_rescheduled': False,
-                        'is_absent': is_absent,
-                        'status_on_lesson': status_on_lesson
+                        'is_cancelled': '<strike' in link_html,
+                        'is_absent': 'text-muted' in link_html,
+                        'is_paused': bool(re.search(r'\(пауза', link_html, re.IGNORECASE)),
+                        'status_on_lesson': self._extract_status(link_html),
+                        'balance': self._extract_balance(link_html),
                     }
             
             return students_data
-            
         except Exception as e:
-            print(f"Ошибка парсинга поповера: {e}")
-            import traceback
-            traceback.print_exc()
             return {}
     
-    def parse_page_lesson(self, element, date: str) -> Optional[Dict]:
-        """Парсит урок из HTML страницы"""
+    def _extract_status(self, html: str) -> Optional[str]:
+        if 'абон' in html.lower() or 'спис' in html.lower():
+            return 'списывать'
+        elif 'не спис' in html.lower():
+            return 'не списывать'
+        elif 'пауза' in html.lower():
+            return 'пауза'
+        return None
+    
+    def _extract_balance(self, html: str) -> Optional[int]:
+        match = re.search(r'\((\d+)\s*(?:ост\.?|уроков?|осталось)\)', html, re.IGNORECASE)
+        return int(match.group(1)) if match else None
+    
+    def save_lesson_relations(self, lesson: Dict, students: List[Dict], group_id: str = None):
+        """Сохранение связей (синхронно)"""
         try:
-            time_elem = element.select_one(self.selectors['time'].replace('.', ''))
-            time_text = time_elem.text.strip() if time_elem else ''
-            time_match = re.search(r'(\d{1,2}:\d{2})', time_text)
-            time_str = time_match.group(1) if time_match else ''
+            lesson_id = lesson.get('id')
+            crm_type = lesson.get('crm_type')
+            site_url = lesson.get('site_url')
+            is_completed = lesson.get('status') == 'completed'
             
-            title_elem = element.select_one(self.selectors['client'].replace('.', ''))
-            title_text = title_elem.text.strip() if title_elem else ''
+            if not group_id:
+                group_id = lesson.get('group_id')
             
-            classes = element.get('class', [])
-            status = 'scheduled'
-            if 'status4' in classes or 'rescheduled' in classes:
-                status = 'rescheduled'
-            elif 'status2' in classes:
-                status = 'cancelled'
-            elif 'status3' in classes:
-                status = 'completed'
+            if group_id and self.db:
+                existing = self.db.get_group(group_id)
+                if not existing:
+                    group_name = lesson.get('group_name', f"Группа #{group_id}")
+                    self.db.save_group(group_id, group_name, site_url, crm_type)
+                self.db.save_lesson_group(lesson_id, group_id)
             
-            icon_elem = element.select_one('.fc-title i')
-            lesson_type = 'unknown'
-            if icon_elem:
-                icon_class = icon_elem.get('class', [])
-                if 'ion-asterisk' in icon_class:
-                    lesson_type = 'trial'
-                elif 'ion-person' in icon_class:
-                    lesson_type = 'individual'
-                elif 'ion-person-stalker' in icon_class:
-                    lesson_type = 'group'
-                elif 'ion-wrench' in icon_class:
-                    lesson_type = 'tech_support'
+            for student in students:
+                student_id = student.get('id')
+                if student_id and self.db:
+                    self.db.save_student(
+                        student_id=student_id,
+                        name=student.get('name', ''),
+                        status='active',
+                        balance=student.get('balance'),
+                        site_url=site_url,
+                        crm_type=crm_type
+                    )
+                    
+                    self.db.save_lesson_student(
+                        lesson_id=lesson_id,
+                        student_id=student_id,
+                        status_on_lesson=student.get('status_on_lesson'),
+                        is_cancelled=student.get('is_cancelled', False),
+                        is_paused=student.get('is_paused', False),
+                        is_absent=student.get('is_absent', False),
+                        is_rescheduled=student.get('is_rescheduled', False),
+                        is_completed=is_completed,
+                    )
             
-            client_match = re.search(r'([A-Za-zА-Яа-я\s]+)\s*\([^)]+\)', title_text)
-            client = client_match.group(1).strip() if client_match else title_text
-            
-            teacher_match = re.search(r'<i[^>]*class="[^"]*ion-university[^"]*"[^>]*>([^<]+)</i>', str(title_elem)) if title_elem else None
-            teacher = teacher_match.group(1).strip() if teacher_match else ''
-            
-            room_match = re.search(r'room-(\d+)', ' '.join(classes))
-            room = room_match.group(1) if room_match else ''
-            
-            lesson_id = element.get('data-id', '') or element.get('id', '')
-            
-            group_id = None
-            group_name = None
-            link_elem = element.select_one('a')
-            if link_elem:
-                href = link_elem.get('href', '')
-                if 'group/view' in href:
-                    gid_match = re.search(r'id=(\d+)', href)
-                    if gid_match:
-                        group_id = gid_match.group(1)
-                        name_match = re.search(r'name=([^&]+)', href)
-                        if name_match:
-                            group_name = name_match.group(1)
-            
-            return {
-                'id': lesson_id,
-                'time': time_str,
-                'client': client,
-                'subject': '',
-                'topic': '',
-                'comment': '',
-                'status': status,
-                'link': self.config['site_url'] + self.selectors['schedule_url'],
-                'teacher': teacher,
-                'room': room,
-                'type': lesson_type,
-                'is_occupied': status in ['scheduled', 'completed'],
-                'date': date or datetime.now().strftime("%Y-%m-%d"),
-                'timestamp': datetime.now().isoformat(),
-                'group_id': group_id,
-                'students': []
-            }
-            
+            if self.db:
+                self.db.save_lesson(lesson)
         except Exception as e:
-            print(f"Ошибка парсинга страницы урока: {e}")
-            return None
-
-    def login(self):
-        """Алиас для login_sync (для совместимости)"""
-        return self.login_sync()
+            print(f"Ошибка сохранения: {e}")
     
-    def get_lessons_from_api(self, start_date=None, end_date=None):
-        """Алиас для get_lessons_from_api_sync (для совместимости)"""
-        return self.get_lessons_from_api_sync(start_date, end_date)
+    def save_lesson_relations_sync(self, lesson: Dict, students: List[Dict], group_id: str = None):
+        """Синхронное сохранение связей"""
+        self.save_lesson_relations(lesson, students, group_id)
     
-    def close(self):
-        """Закрывает драйвер"""
-        self.close_driver()
+    # ==================== АСИНХРОННЫЕ МЕТОДЫ ДЛЯ СОВМЕСТИМОСТИ ====================
+    
+    async def login(self, db) -> bool:
+        self.db = db
+        return await self.login_async()
+    
+    async def get_teacher_groups(self, db) -> Dict[str, str]:
+        self.db = db
+        return await self.get_teacher_groups_async()
+    
+    async def get_lessons_from_api(self, db, start_date=None, end_date=None) -> List[Dict]:
+        self.db = db
+        return await self.get_lessons_from_api_async(start_date, end_date)
