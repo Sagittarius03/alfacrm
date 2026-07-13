@@ -199,6 +199,45 @@ class DatabaseCleaner:
             print("-" * 60)
             return tables
 
+    def get_student_presence_status(self, lesson_id, student_id):
+        """Возвращает статус присутствия ученика на уроке"""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT 
+                    ls.status_on_lesson,
+                    ls.is_absent,
+                    ls.is_completed,
+                    l.status as lesson_status
+                FROM lesson_students ls
+                JOIN lessons l ON ls.lesson_id = l.id
+                WHERE ls.lesson_id = ? AND ls.student_id = ?
+            ''', (lesson_id, student_id))
+            row = cursor.fetchone()
+            if row:
+                return dict(row)
+            return None
+    def get_lesson_students(self, lesson_id):
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT 
+                    s.*, 
+                    ls.lesson_id,
+                    ls.status_on_lesson,
+                    ls.is_cancelled,
+                    ls.is_paused,
+                    ls.is_absent,
+                    ls.is_rescheduled,
+                    ls.is_completed,
+                    ls.pause_info,
+                    ls.extra_info
+                FROM lesson_students ls
+                JOIN students s ON ls.student_id = s.id
+                WHERE ls.lesson_id = ?
+            ''', (lesson_id,))
+            return [dict(row) for row in cursor.fetchall()]
+
 
 def main():
     """Основная функция для запуска из командной строки"""
@@ -260,6 +299,8 @@ def main():
         print("❌ Неверный выбор!")
     
     print("\n✅ Готово!")
+    
+    
 
 
 if __name__ == '__main__':

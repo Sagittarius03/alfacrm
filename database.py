@@ -285,12 +285,35 @@ class Database:
         with self.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute('''
-                SELECT s.*, ls.*, ls.status_on_lesson as student_status_on_lesson
+                SELECT 
+                    s.id as student_id,
+                    s.name,
+                    s.status,
+                    s.balance,
+                    s.site_url,
+                    s.crm_type,
+                    s.last_updated,
+                    ls.lesson_id,
+                    ls.status_on_lesson,
+                    ls.is_cancelled,
+                    ls.is_paused,
+                    ls.is_absent,
+                    ls.is_rescheduled,
+                    ls.is_completed,
+                    ls.pause_info,
+                    ls.extra_info
                 FROM lesson_students ls
                 JOIN students s ON ls.student_id = s.id
                 WHERE ls.lesson_id = ?
             ''', (lesson_id,))
-            return [dict(row) for row in cursor.fetchall()]
+            rows = cursor.fetchall()
+            result = []
+            for row in rows:
+                data = dict(row)
+                # Переименовываем student_id обратно в id для совместимости
+                data['id'] = data.pop('student_id')
+                result.append(data)
+            return result
     
     def get_lesson_groups(self, lesson_id):
         with self.get_connection() as conn:

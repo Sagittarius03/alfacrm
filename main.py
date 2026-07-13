@@ -2,6 +2,8 @@
 import re
 
 import kivy
+
+from utils.text_format import printd
 kivy.require('2.2.0')
 
 from kivy.app import App
@@ -821,11 +823,20 @@ class CalendarWidget(BoxLayout):
 
             return container
 
+        # ========== ОТЛАДКА ==========
+        print(f"DEBUG: lesson_students = {lesson_students}")
+        if lesson_students:
+            for s in lesson_students:
+                print(f"DEBUG: student keys = {list(s.keys())}")
+                print(f"DEBUG: status_on_lesson = {s.get('status_on_lesson')}")
+        # ========== КОНЕЦ ОТЛАДКИ ==========
+
         if lesson_students:
             for student_data in lesson_students:
                 name_text = student_data.get('name', 'Без имени')
                 student_id = student_data.get('id', '')
-                status_on_lesson = student_data.get('student_status_on_lesson')
+                status_on_lesson = student_data.get('status_on_lesson')
+                print(f"DEBUG: {name_text} - status_on_lesson = {status_on_lesson}")
                 balance = student_data.get('balance')
 
                 # Получаем статусы
@@ -837,6 +848,32 @@ class CalendarWidget(BoxLayout):
                 pause_info = student_data.get('pause_info', '')
                 extra_info = student_data.get('extra_info', '')
 
+                # ========== ОПРЕДЕЛЯЕМ СТАТУС ПРИСУТСТВИЯ ==========
+                presence_status = None
+                if is_absent:
+                    presence_status = "НЕ БЫЛ"
+                    presence_color = '#888899'
+                elif is_completed_flag and not is_absent:
+                    presence_status = "БЫЛ"
+                    presence_color = '#66ff66'
+                elif not is_completed_flag:
+                    presence_status = "ОЖИДАЕТСЯ"
+                    presence_color = '#66ccff'
+                
+                # Определяем статус списания
+                if status_on_lesson == 'списывать':
+                    write_off_status = "СПИСЫВАТЬ"
+                    write_off_color = '#44ff44'
+                elif status_on_lesson == 'не списывать':
+                    write_off_status = "НЕ СПИСЫВАТЬ"
+                    write_off_color = '#ff4444'
+                elif status_on_lesson == 'пауза':
+                    write_off_status = "ПАУЗА"
+                    write_off_color = '#ff9900'
+                else:
+                    write_off_status = ""
+                    write_off_color = '#888899'
+                
                 # Создаем строку ученика
                 student_box = BoxLayout(orientation='horizontal', 
                                     size_hint_y=None, height=dp(50 if status_on_lesson or balance is not None else 35), 
@@ -877,6 +914,46 @@ class CalendarWidget(BoxLayout):
                 # Правая часть
                 right_container = BoxLayout(orientation='vertical', size_hint_x=0.5, spacing=dp(2))
 
+                # Строка 1: статус присутствия
+                if presence_status:
+                    presence_lbl = Label(
+                        text=presence_status, 
+                        color=get_color_from_hex(presence_color),
+                        font_size=dp(11), 
+                        size_hint_y=None, 
+                        height=dp(20),
+                        halign='right', 
+                        valign='middle', 
+                        bold=True
+                    )
+                    right_container.add_widget(presence_lbl)
+                
+                # Строка 2: статус списания
+                if write_off_status:
+                    write_off_lbl = Label(
+                        text=write_off_status, 
+                        color=get_color_from_hex(write_off_color),
+                        font_size=dp(10), 
+                        size_hint_y=None, 
+                        height=dp(18),
+                        halign='right', 
+                        valign='middle'
+                    )
+                    right_container.add_widget(write_off_lbl)
+
+                # Остаток (третья строка)
+                if balance is not None:
+                    balance_color = '#66ff66' if balance > 0 else '#ff6666'
+                    balance_lbl = Label(
+                        text=f"Остаток: {balance} ур.",
+                        color=get_color_from_hex(balance_color),
+                        font_size=dp(10), 
+                        size_hint_y=None, 
+                        height=dp(18),
+                        halign='right', 
+                        valign='middle'
+                    )
+                    right_container.add_widget(balance_lbl)
                 # Статус на уроке (первая строка)
                 status_texts = []
 

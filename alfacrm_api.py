@@ -610,28 +610,48 @@ class AlfaCRMApi:
                 for cid, name_html in customers.items():
                     clean_name = re.sub(r'<[^>]+>', '', name_html).strip()
 
+                    # Определяем статусы
                     is_cancelled = '<strike' in name_html
-                    is_absent = 'text-muted' in name_html or 'не спис' in name_html.lower()
+                    is_absent = 'text-muted' in name_html
                     is_rescheduled = 'Перенос' in name_html or 'rescheduled' in name_html.lower()
                     pause_match = re.search(r'\(пауза\s+([^)]+)\)', name_html, re.IGNORECASE)
                     is_paused = bool(pause_match)
                     pause_info = pause_match.group(1) if pause_match else None
                     is_completed = status == 'completed'
 
+                    # Остаток
                     balance_match = re.search(r'\((\d+)\s*(?:ост\.?|уроков?|осталось)\)', name_html, re.IGNORECASE)
                     balance = int(balance_match.group(1)) if balance_match else None
 
+                    # Дополнительная информация
                     extra_match = re.search(r'\(([^)]*(?:ост\.?|уроков?|осталось)[^)]*)\)', name_html, re.IGNORECASE)
                     extra_info = extra_match.group(1) if extra_match else ''
 
+                    # ========== ОПРЕДЕЛЕНИЕ СТАТУСА НА УРОКЕ ==========
+                    # Приоритет: явный статус > пауза > флаги
+                    status_on_lesson = None
+                    
+                    # 1. Проверяем явные статусы из HTML
                     if 'абон' in name_html.lower() or 'спис' in name_html.lower():
                         status_on_lesson = 'списывать'
                     elif 'не спис' in name_html.lower():
                         status_on_lesson = 'не списывать'
                     elif pause_info:
                         status_on_lesson = 'пауза'
-                    else:
-                        status_on_lesson = None
+                    
+                    # 2. Если урок проведен, но ученик не списывается - он не был
+                    if is_completed and status_on_lesson == 'не списывать':
+                        is_absent = True
+                    # 3. Если урок проведен и ученик на паузе - он не был
+                    elif is_completed and status_on_lesson == 'пауза':
+                        is_absent = True
+                    # 4. Если урок не проведен - ученик еще не мог быть
+                    elif not is_completed:
+                        is_absent = False
+                    # 5. Если урок проведен и статус не определен - считаем что был
+                    elif is_completed and not status_on_lesson:
+                        is_absent = False
+                        status_on_lesson = 'списывать'  # По умолчанию списывается
 
                     student_data = {
                         'id': cid,
@@ -642,10 +662,10 @@ class AlfaCRMApi:
                         'extra_info': extra_info,
                         'balance': balance,
                         'is_rescheduled': is_rescheduled,
-                        'is_absent': is_absent,
+                        'is_absent': is_absent,  # Флаг отсутствия
                         'is_completed': is_completed,
                         'group_id': group_id,
-                        'status_on_lesson': status_on_lesson
+                        'status_on_lesson': status_on_lesson  # Статус на уроке
                     }
                     students.append(student_data)
 
@@ -938,6 +958,7 @@ class AlfaCRMApi:
                     )
 
                     status_on_lesson = student.get('status_on_lesson')
+                    print(f"DEBUG: Сохраняем статус для {student_name}: {status_on_lesson}")
                     extra_info = student.get('extra_info', '')
                     pause_info = student.get('pause_info', '')
 
