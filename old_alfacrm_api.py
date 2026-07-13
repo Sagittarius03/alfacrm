@@ -12,6 +12,7 @@ from datetime import datetime, timedelta
 import threading
 import requests
 import urllib.parse
+import hashlib
 
 from utils.text_format import *
 
@@ -356,8 +357,8 @@ class AlfaCRMApi:
         except:
             return False
 
-    def get_lesson_popover_html(self, lesson_id):
-        """Получает HTML поповера для урока по его ID"""
+    def get_lesson_popover_data(self, lesson_id):
+        """Получает данные о уроке из поповера (HTML)"""
         try:
             # Ищем элемент урока на странице
             lesson_element = self.driver.find_element(By.CSS_SELECTOR, f"[data-id='{lesson_id}']")
@@ -366,54 +367,108 @@ class AlfaCRMApi:
             
             # Кликаем по уроку чтобы открыть поповер
             self.driver.execute_script("arguments[0].click();", lesson_element)
-            time.sleep(0.5)
+            time.sleep(0.8)
             
             # Ждем появления поповера
             try:
-                popover = WebDriverWait(self.driver, 3).until(
-                    EC.presence_of_element_located((By.CSS_SELECTOR, self.selectors['popover']))
+                popover = WebDriverWait(self.driver, 5).until(
+                    EC.presence_of_element_located((By.CSS_SELECTOR, ".popover"))
                 )
-                return popover.get_attribute('outerHTML')
+                popover_html = popover.get_attribute('outerHTML')
+                return self.parse_popover_for_students(popover_html)
             except:
                 return None
         except Exception as e:
             print(f"Ошибка получения поповера для урока {lesson_id}: {e}")
             return None
 
-    def parse_popover_for_group(self, popover_html):
-        """Парсит HTML поповера для получения ID и названия группы"""
+    def parse_popover_for_students(self, popover_html):
+        """Парсит HTML поповера для получения статусов учеников"""
         try:
             soup = BeautifulSoup(popover_html, 'html.parser')
+            students_data = {}
             
-            group_id = None
-            group_name = None
+            # Ищем все ссылки на учеников в поповере
+            # Структура поповера: div.row > div.col-sm-12 > a.crm-dashed-link
+            rows = soup.find_all('div', class_='row')
             
-            # Ищем блок с группами
-            # <dt class="col-sm-5 text-muted">Группы</dt>
-            # <dd class="col-sm-7 popover-description">
-            #     <a href="/teacher/1/group/view?id=1406" target="_blank">ПП2.0 93</a>
-            # </dd>
+            for row in rows:
+                col = row.find('div', class_='col-sm-12')
+                if not col:
+                    continue
+                
+                # Ищем ссылки на учеников
+                links = col.find_all('a', href=True)
+                
+                for link in links:
+                    href = link.get('href', '')
+                    if 'customer/view' not in href:
+                        continue
+                    
+                    # Извлекаем ID ученика
+                    id_match = re.search(r'id=(\d+)', href)
+                    if not id_match:
+                        continue
+                    student_id = id_match.group(1)
+                    
+                    # Получаем HTML контент ссылки
+                    link_html = str(link)
+                    
+                    # Извлекаем имя
+                    name_span = link.find('span', class_='customer-name')
+                    if name_span:
+                        student_name = name_span.get_text(strip=True)
+                    else:
+                        student_name = link.get_text(strip=True)
+                    
+                    # Определяем статусы
+                    is_cancelled = '<strike' in link_html or 'strike' in link_html
+                    is_absent = 'text-muted' in link_html
+                    
+                    # Проверяем на паузу
+                    pause_match = re.search(r'\(пауза\s+([^)]+)\)', link_html, re.IGNORECASE)
+                    is_paused = bool(pause_match)
+                    pause_info = pause_match.group(1) if pause_match else None
+                    
+                    # Определяем статус списания
+                    status_on_lesson = None
+                    if 'абон' in link_html.lower():
+                        status_on_lesson = 'списывать'
+                    elif 'спис' in link_html.lower() and 'не спис' not in link_html.lower():
+                        status_on_lesson = 'списывать'
+                    elif 'не спис' in link_html.lower():
+                        status_on_lesson = 'не списывать'
+                    elif pause_info:
+                        status_on_lesson = 'пауза'
+                    
+                    # Извлекаем остаток
+                    balance_match = re.search(r'\((\d+)\s*(?:ост\.?|уроков?|осталось)\)', link_html, re.IGNORECASE)
+                    balance = int(balance_match.group(1)) if balance_match else None
+                    
+                    # Дополнительная информация
+                    extra_match = re.search(r'\(([^)]*(?:ост\.?|уроков?|осталось)[^)]*)\)', link_html, re.IGNORECASE)
+                    extra_info = extra_match.group(1) if extra_match else ''
+                    
+                    students_data[student_id] = {
+                        'id': student_id,
+                        'name': student_name,
+                        'is_cancelled': is_cancelled,
+                        'is_paused': is_paused,
+                        'pause_info': pause_info,
+                        'extra_info': extra_info,
+                        'balance': balance,
+                        'is_rescheduled': False,
+                        'is_absent': is_absent,
+                        'status_on_lesson': status_on_lesson
+                    }
             
-            dt_elements = soup.find_all('dt', class_='col-sm-5')
-            for dt in dt_elements:
-                if 'Группы' in dt.get_text():
-                    dd = dt.find_next_sibling('dd')
-                    if dd:
-                        link = dd.find('a', href=True)
-                        if link:
-                            href = link.get('href', '')
-                            # Извлекаем ID из ссылки
-                            id_match = re.search(r'group/view\?id=(\d+)', href)
-                            if id_match:
-                                group_id = id_match.group(1)
-                                group_name = link.get_text(strip=True)
-                                print(f"Парсинг поповера: найдена группа {group_name} с ID {group_id}")
-                                break
+            return students_data
             
-            return group_id, group_name
         except Exception as e:
             print(f"Ошибка парсинга поповера: {e}")
-            return None, None
+            import traceback
+            traceback.print_exc()
+            return None
 
     def get_lessons_from_api(self, start_date=None, end_date=None):
         if not self.is_logged_in:
@@ -432,10 +487,7 @@ class AlfaCRMApi:
             if not end_date:
                 end_date = (datetime.now() + timedelta(days=7)).strftime("%Y-%m-%d")
             url = f"{self.config['site_url']}{self.selectors['lesson_detail_url']}"
-            params = {'start': start_date, 'end': end_date, 'page': 1, 'with_groups': 1, 
-                    'expand': 'group',
-                    'include': 'group' 
-                    }
+            params = {'start': start_date, 'end': end_date, 'page': 1}
             headers = {}
             if csrf_token:
                 headers['X-CSRF-Token'] = csrf_token
@@ -459,7 +511,7 @@ class AlfaCRMApi:
                 else:
                     break
             
-            # Сначала загружаем страницу календаря для парсинга поповеров
+            # Загружаем страницу календаря для парсинга поповеров
             calendar_url = f"{self.config['site_url']}{self.selectors['schedule_url']}"
             self.driver.get(calendar_url)
             WebDriverWait(self.driver, 15).until(
@@ -469,26 +521,37 @@ class AlfaCRMApi:
             
             lessons = []
             for lesson_data in all_lessons:
+                # Парсим урок из JSON
                 lesson = self.parse_api_lesson(lesson_data)
                 if lesson:
-                    # Если у урока нет group_id, пробуем получить из поповера
-                    if not lesson.get('group_id') and lesson.get('id'):
-                        lesson_id = lesson.get('id')
-                        print(f"Пробуем получить группу для урока {lesson_id} через поповер...")
-                        popover_html = self.get_lesson_popover_html(lesson_id)
-                        if popover_html:
-                            group_id, group_name = self.parse_popover_for_group(popover_html)
-                            if group_id:
-                                lesson['group_id'] = group_id
-                                lesson['group_name'] = group_name
-                                print(f"Получена группа из поповера: {group_name} (ID: {group_id})")
-                                
-                                # Обновляем группу в БД
-                                if hasattr(self, 'db'):
-                                    self.db.save_group(group_id, group_name, self.config['site_url'], self.crm_type)
-                                    self.db.save_lesson_group(lesson_id, group_id)
-                                    # Обновляем урок в БД
-                                    self.db.save_lesson(lesson)
+                    lesson_id = lesson.get('id')
+                    
+                    # Получаем данные из поповера
+                    popover_data = self.get_lesson_popover_data(lesson_id)
+                    
+                    if popover_data:
+                        # Обновляем статусы учеников из поповера
+                        updated_students = []
+                        for student in lesson.get('students', []):
+                            student_id = student.get('id')
+                            if student_id and student_id in popover_data:
+                                popover_student = popover_data[student_id]
+                                student['status_on_lesson'] = popover_student.get('status_on_lesson')
+                                student['is_absent'] = popover_student.get('is_absent', False)
+                                student['is_paused'] = popover_student.get('is_paused', False)
+                                student['pause_info'] = popover_student.get('pause_info')
+                                student['extra_info'] = popover_student.get('extra_info', '')
+                                student['balance'] = popover_student.get('balance')
+                                student['is_cancelled'] = popover_student.get('is_cancelled', False)
+                                student['is_rescheduled'] = popover_student.get('is_rescheduled', False)
+                            updated_students.append(student)
+                        
+                        lesson['students'] = updated_students
+                        
+                        # Сохраняем обновленный урок в БД
+                        if hasattr(self, 'db'):
+                            self.save_lesson_relations(lesson, updated_students, lesson.get('group_id'))
+                            self.db.save_lesson(lesson)
                     
                     lessons.append(lesson)
             
@@ -496,6 +559,8 @@ class AlfaCRMApi:
             return lessons
         except Exception as e:
             print(f"Ошибка получения уроков через API для {self.crm_type}: {e}")
+            import traceback
+            traceback.print_exc()
             return self.get_lessons_from_page(start_date, end_date)
 
     def get_lessons_from_page(self, start_date=None, end_date=None):
@@ -557,13 +622,13 @@ class AlfaCRMApi:
             group_id = None
             group_name = None
             topic = data.get('subject', '')
-            
+
             # 1. Пробуем получить group_id из данных
             if data.get('group_id'):
                 group_id = str(data.get('group_id'))
             elif data.get('group'):
                 group_id = str(data.get('group'))
-            
+
             # 2. Пробуем получить group_name из title
             title = data.get('title', '')
             if title:
@@ -572,45 +637,30 @@ class AlfaCRMApi:
                     potential_name = group_match.group(1).strip()
                     if re.search(r'[А-ЯA-Z][А-ЯA-Z0-9. ]*\d+', potential_name):
                         group_name = potential_name
-            
+
             # 3. Если не нашли в title, ищем в searchbuf
             if not group_name:
                 searchbuf = data.get('searchbuf', '')
                 search_match = re.search(r'([А-ЯA-Z][А-ЯA-Z0-9. ]*\d+)', searchbuf)
                 if search_match:
                     group_name = search_match.group(1)
-            
+
             # 4. Если есть group_name, ищем правильный ID в БД
             if group_name and hasattr(self, 'db'):
-                # Ищем в БД по названию
                 existing_group = self.db.get_group_by_name(group_name, self.crm_type)
                 if existing_group:
                     group_id = existing_group.get('id')
-                    print(f"Найдена группа в БД: {group_name} -> ID: {group_id}")
                 else:
-                    # Если группы нет в БД, пробуем получить через API
-                    print(f"Группа {group_name} не найдена в БД, пробуем получить через API...")
-                    groups = self.get_teacher_groups()
-                    if group_name in groups:
-                        group_id = groups[group_name]
-                        # Сохраняем в БД
-                        self.db.save_group(group_id, group_name, self.config['site_url'], self.crm_type)
-                        print(f"Получена группа через API: {group_name} -> ID: {group_id}")
-                    else:
-                        # Создаем временный ID
-                        import hashlib
-                        group_id = hashlib.md5(group_name.encode()).hexdigest()[:10]
-                        self.db.save_group(group_id, group_name, self.config['site_url'], self.crm_type)
-                        print(f"Создан временный ID для группы: {group_id}")
-            
-            print(f"ИТОГО: group_id={group_id}, group_name={group_name}")
+                    import hashlib
+                    group_id = hashlib.md5(group_name.encode()).hexdigest()[:10]
+                    self.db.save_group(group_id, group_name, self.config['site_url'], self.crm_type)
 
             # ========== ОБРАБОТКА УЧЕНИКОВ ==========
             if isinstance(customers, dict):
                 for cid, name_html in customers.items():
                     clean_name = re.sub(r'<[^>]+>', '', name_html).strip()
 
-                    # Определяем статусы
+                    # Определяем статусы из JSON (предварительно)
                     is_cancelled = '<strike' in name_html
                     is_absent = 'text-muted' in name_html
                     is_rescheduled = 'Перенос' in name_html or 'rescheduled' in name_html.lower()
@@ -627,31 +677,14 @@ class AlfaCRMApi:
                     extra_match = re.search(r'\(([^)]*(?:ост\.?|уроков?|осталось)[^)]*)\)', name_html, re.IGNORECASE)
                     extra_info = extra_match.group(1) if extra_match else ''
 
-                    # ========== ОПРЕДЕЛЕНИЕ СТАТУСА НА УРОКЕ ==========
-                    # Приоритет: явный статус > пауза > флаги
+                    # Статус на уроке (будет обновлен из поповера)
                     status_on_lesson = None
-                    
-                    # 1. Проверяем явные статусы из HTML
-                    if 'абон' in name_html.lower() or 'спис' in name_html.lower():
+                    if 'абон' in name_html.lower():
                         status_on_lesson = 'списывать'
                     elif 'не спис' in name_html.lower():
                         status_on_lesson = 'не списывать'
                     elif pause_info:
                         status_on_lesson = 'пауза'
-                    
-                    # 2. Если урок проведен, но ученик не списывается - он не был
-                    if is_completed and status_on_lesson == 'не списывать':
-                        is_absent = True
-                    # 3. Если урок проведен и ученик на паузе - он не был
-                    elif is_completed and status_on_lesson == 'пауза':
-                        is_absent = True
-                    # 4. Если урок не проведен - ученик еще не мог быть
-                    elif not is_completed:
-                        is_absent = False
-                    # 5. Если урок проведен и статус не определен - считаем что был
-                    elif is_completed and not status_on_lesson:
-                        is_absent = False
-                        status_on_lesson = 'списывать'  # По умолчанию списывается
 
                     student_data = {
                         'id': cid,
@@ -662,10 +695,10 @@ class AlfaCRMApi:
                         'extra_info': extra_info,
                         'balance': balance,
                         'is_rescheduled': is_rescheduled,
-                        'is_absent': is_absent,  # Флаг отсутствия
+                        'is_absent': is_absent,
                         'is_completed': is_completed,
                         'group_id': group_id,
-                        'status_on_lesson': status_on_lesson  # Статус на уроке
+                        'status_on_lesson': status_on_lesson
                     }
                     students.append(student_data)
 
@@ -689,7 +722,7 @@ class AlfaCRMApi:
                         clean_name = re.sub(r'<[^>]+>', '', name_html).strip()
 
                         is_cancelled = '<strike' in name_html
-                        is_absent = 'text-muted' in name_html or 'не спис' in name_html.lower()
+                        is_absent = 'text-muted' in name_html
                         is_rescheduled = 'Перенос' in name_html or 'rescheduled' in name_html.lower()
                         pause_match = re.search(r'\(пауза\s+([^)]+)\)', name_html, re.IGNORECASE)
                         is_paused = bool(pause_match)
@@ -702,14 +735,13 @@ class AlfaCRMApi:
                         extra_match = re.search(r'\(([^)]*(?:ост\.?|уроков?|осталось)[^)]*)\)', name_html, re.IGNORECASE)
                         extra_info = extra_match.group(1).strip() if extra_match else ''
 
-                        if 'абон' in name_html.lower() or 'спис' in name_html.lower():
+                        status_on_lesson = None
+                        if 'абон' in name_html.lower():
                             status_on_lesson = 'списывать'
                         elif 'не спис' in name_html.lower():
                             status_on_lesson = 'не списывать'
                         elif pause_info:
                             status_on_lesson = 'пауза'
-                        else:
-                            status_on_lesson = None
 
                         student_data = {
                             'id': cid,
@@ -796,12 +828,8 @@ class AlfaCRMApi:
                 'crm_type': self.crm_type,
                 'site_url': self.config['site_url'],
                 'students': students,
-                'group_id': group_id,
+                'group_id': group_id
             }
-
-            # Сохраняем связи в БД
-            if hasattr(self, 'db'):
-                self.save_lesson_relations(lesson, students, group_id)
 
             return lesson
         except Exception as e:
@@ -812,7 +840,6 @@ class AlfaCRMApi:
 
     def parse_page_lesson(self, element, date):
         try:
-            printd(element)
             time_elem = element.select_one(self.selectors['time'].replace('.', ''))
             time_text = time_elem.text.strip() if time_elem else ''
             time_match = re.search(r'(\d{1,2}:\d{2})', time_text)
@@ -876,7 +903,6 @@ class AlfaCRMApi:
                 'date': date or datetime.now().strftime("%Y-%m-%d"),
                 'timestamp': datetime.now().isoformat(),
                 'group_id': group_id,
-                'group_name': group_name,
                 'students': []
             }
             return lesson
@@ -925,14 +951,10 @@ class AlfaCRMApi:
 
             # Сохраняем группу если есть ID
             if group_id and hasattr(self, 'db'):
-                # Проверяем, есть ли группа в БД
                 existing = self.db.get_group(group_id)
                 if not existing:
-                    # Если нет - создаем с временным названием
                     group_name = f"Группа #{group_id}"
                     self.db.save_group(group_id, group_name, site_url, crm_type)
-                
-                # Сохраняем связь урока с группой
                 self.db.save_lesson_group(lesson_id, group_id)
 
             # Сохраняем учеников и связи
@@ -958,7 +980,6 @@ class AlfaCRMApi:
                     )
 
                     status_on_lesson = student.get('status_on_lesson')
-                    print(f"DEBUG: Сохраняем статус для {student_name}: {status_on_lesson}")
                     extra_info = student.get('extra_info', '')
                     pause_info = student.get('pause_info', '')
 
@@ -1012,14 +1033,10 @@ class AlfaCRMApi:
                 pass
             self.driver = None
             self.is_logged_in = False
-            
+
     def get_teacher_groups(self):
-        """
-        Получает все группы учителя из API.
-        Возвращает словарь {group_name: group_id}
-        """
+        """Получает все группы учителя из API"""
         try:
-            # Пробуем разные возможные эндпоинты
             endpoints = [
                 f"{self.config['site_url']}/teacher/1/group/index",
                 f"{self.config['site_url']}/teacher/1/group/list",
@@ -1027,7 +1044,6 @@ class AlfaCRMApi:
                 f"{self.config['site_url']}/teacher/1/group/get-groups",
             ]
             
-            # Получаем CSRF токен если нужен
             try:
                 csrf_token = self.driver.find_element(By.CSS_SELECTOR, self.selectors['csrf']).get_attribute('content')
             except:
@@ -1044,18 +1060,13 @@ class AlfaCRMApi:
             
             for url in endpoints:
                 try:
-                    print(f"Пробуем получить группы по URL: {url}")
                     response = self.session.get(url, headers=headers)
                     
                     if response.status_code == 200:
-                        # Пробуем распарсить JSON
                         try:
                             data = response.json()
-                            print(f"Получен JSON: {list(data.keys()) if isinstance(data, dict) else 'list'}")
                             
-                            # Парсим JSON в зависимости от структуры
                             if isinstance(data, dict):
-                                # Ищем ключи, которые могут содержать группы
                                 possible_keys = ['groups', 'collection', 'items', 'data', 'result']
                                 for key in possible_keys:
                                     if key in data and isinstance(data[key], list):
@@ -1064,10 +1075,8 @@ class AlfaCRMApi:
                                                 group_id = str(item.get('id'))
                                                 group_name = item.get('name') or item.get('title', '')
                                                 groups[group_name] = group_id
-                                                print(f"Найдена группа: {group_name} -> ID: {group_id}")
                                         break
                                 
-                                # Если не нашли в списке, может быть словарь с группами
                                 if not groups:
                                     for key, value in data.items():
                                         if isinstance(value, dict) and 'id' in value and 'name' in value:
@@ -1084,17 +1093,12 @@ class AlfaCRMApi:
                                         group_name = item.get('name') or item.get('title', '')
                                         groups[group_name] = str(item.get('id'))
                             
-                            # Если нашли группы - выходим
                             if groups:
                                 print(f"Найдено {len(groups)} групп через API")
                                 break
                                 
                         except ValueError:
-                            # Если не JSON, пробуем парсить HTML
-                            print("Ответ не в JSON формате, пробуем парсить HTML...")
                             soup = BeautifulSoup(response.text, 'html.parser')
-                            
-                            # Ищем ссылки на группы в HTML
                             for link in soup.select('a[href*="group/view"]'):
                                 href = link.get('href')
                                 match = re.search(r'id=(\d+)', href)
@@ -1103,7 +1107,6 @@ class AlfaCRMApi:
                                     group_name = link.text.strip()
                                     if group_name:
                                         groups[group_name] = group_id
-                                        print(f"Найдена группа (HTML): {group_name} -> ID: {group_id}")
                             
                             if groups:
                                 break
@@ -1112,7 +1115,6 @@ class AlfaCRMApi:
                     print(f"Ошибка при запросе к {url}: {e}")
                     continue
             
-            # Сохраняем группы в БД
             if groups and hasattr(self, 'db'):
                 for group_name, group_id in groups.items():
                     self.db.save_group(

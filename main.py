@@ -2,8 +2,6 @@
 import re
 
 import kivy
-
-from utils.text_format import printd
 kivy.require('2.2.0')
 
 from kivy.app import App
@@ -27,9 +25,10 @@ import base64
 import tempfile
 import os
 import webbrowser
+import asyncio
 
-from alfacrm_api import AlfaCRMApi
-from database import Database
+from old_alfacrm_api import AlfaCRMApi
+from database import SyncDatabase as Database
 from notification_manager import NotificationManager
 from scheduler import Scheduler
 from config_manager import ConfigManager
@@ -42,6 +41,7 @@ except ImportError:
 Window.clearcolor = get_color_from_hex('#0a0a0f')
 Window.size = (1200, 800)
 
+
 class MainApp(App):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -52,6 +52,7 @@ class MainApp(App):
         self.load_profiles()
         self.notification_manager = NotificationManager(self.db)
         self.scheduler = Scheduler(self.api_instances[0] if self.api_instances else None, self.db, self.notification_manager)
+        self._async_loop = None
         
     def load_profiles(self):
         profiles = self.config_manager.get_profiles()
@@ -191,7 +192,7 @@ class MainApp(App):
             t.join()
         if all(results.values()):
             Clock.schedule_once(lambda dt: self.update_status('Подключено', '#44ff44'))
-            # Загружаем уроки в фоне
+            # Загружаем уроки в фоне асинхронно
             threading.Thread(target=self.async_load_lessons, daemon=True).start()
         elif any(results.values()):
             Clock.schedule_once(lambda dt: self.update_status('Частичное подключение', '#ffaa44'))
@@ -201,14 +202,59 @@ class MainApp(App):
             print(f"{crm}: {'Успешно' if status else 'Ошибка'}")
 
     def async_load_lessons(self):
+        """Асинхронная загрузка уроков"""
         Clock.schedule_once(lambda dt: self.update_status('Загрузка уроков...', '#44aaff'))
-        Clock.schedule_once(lambda dt: self.calendar_widget.load_week_lessons(), 0.5)
-        Clock.schedule_once(lambda dt: self.calendar_widget.rebuild_table(), 1)
+        
+        # Запускаем асинхронную загрузку
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            loop.run_until_complete(self._async_load_lessons())
+        finally:
+            loop.close()
+        
+        # Обновляем UI
+        Clock.schedule_once(lambda dt: self.update_status('Подключено', '#44ff44'))
+    
+    async def _async_load_lessons(self):
+        """Асинхронная загрузка уроков из всех CRM"""
         week_start = datetime.now() - timedelta(days=datetime.now().weekday())
         week_end = week_start + timedelta(days=6)
-        lessons = self.db.get_lessons_for_period(week_start.strftime("%Y-%m-%d"), week_end.strftime("%Y-%m-%d"))
-        Clock.schedule_once(lambda dt: self.update_lesson_count(len(lessons)))
-        Clock.schedule_once(lambda dt: self.update_status('Подключено', '#44ff44'))
+        start_str = week_start.strftime("%Y-%m-%d")
+        end_str = week_end.strftime("%Y-%m-%d")
+        
+        all_lessons = []
+        tasks = []
+        
+        # Создаем задачи для каждого API
+        for api in self.api_instances:
+            if hasattr(api, 'get_lessons_from_api_async'):
+                tasks.append(api.get_lessons_from_api(self.db, start_str, end_str))
+            else:
+                # Синхронный метод в потоке
+                def sync_get(api=api):
+                    return api.get_lessons_from_api(start_str, end_str)
+                tasks.append(asyncio.to_thread(sync_get))
+        
+        # Выполняем все задачи параллельно
+        if tasks:
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            for result in results:
+                if isinstance(result, list) and result:
+                    all_lessons.extend(result)
+                elif isinstance(result, Exception):
+                    print(f"Ошибка загрузки: {result}")
+        
+        # Сохраняем в БД
+        if all_lessons:
+            self.db.save_lessons(all_lessons)
+            Clock.schedule_once(lambda dt: self.update_lesson_count(len(all_lessons)))
+        
+        # Обновляем календарь
+        Clock.schedule_once(lambda dt: self.calendar_widget.load_week_lessons(), 0.5)
+        Clock.schedule_once(lambda dt: self.calendar_widget.rebuild_table(), 1)
+        # Показываем что загрузка завершена
+        Clock.schedule_once(lambda dt: self.calendar_widget.set_loading(False), 1)
             
     def update_status(self, text, color):
         self.status_text.text = text
@@ -240,16 +286,29 @@ class CalendarWidget(BoxLayout):
         self.hours = list(range(8, 22))
         self.zoom_level = 1.0
         self.data_loaded = False
+        self.is_loading = False
         self.current_week_start_str = None
         self.current_week_end_str = None
         self.lessons_by_day_cache = {}
         self.scroll = None
         self.calendar_grid = None
+        self.loading_label = None
         Clock.schedule_once(lambda dt: self.build_calendar(), 0.1)
         Window.bind(on_resize=self.on_window_resize)
         
     def on_window_resize(self, window, width, height):
         self.rebuild_table()
+    
+    def set_loading(self, is_loading):
+        """Устанавливает состояние загрузки"""
+        self.is_loading = is_loading
+        if self.loading_label:
+            self.loading_label.text = "Загрузка уроков..." if is_loading else ""
+
+    def set_loading_text(self, text):
+        """Устанавливает текст загрузки"""
+        if self.loading_label:
+            self.loading_label.text = text
         
     def build_calendar(self):
         self.clear_widgets()
@@ -303,12 +362,13 @@ class CalendarWidget(BoxLayout):
         nav.add_widget(next_btn)
         self.add_widget(nav)
         
-        # Индикатор загрузки
+        # Индикатор загрузки (оставляем всегда видимым, но текст меняем)
         self.loading_label = Label(text="Загрузка уроков...", color=get_color_from_hex('#888899'),
                                     font_size=dp(20), size_hint=(1, 1))
         self.add_widget(self.loading_label)
         
         # Запускаем загрузку в фоне
+        self.is_loading = True
         threading.Thread(target=self.async_load_and_build, daemon=True).start()
         
     def async_load_and_build(self):
@@ -316,7 +376,12 @@ class CalendarWidget(BoxLayout):
         Clock.schedule_once(lambda dt: self.finish_build(), 0)
         
     def finish_build(self):
-        self.remove_widget(self.loading_label)
+        # Убираем индикатор загрузки
+        self.is_loading = False
+        if self.loading_label:
+            self.remove_widget(self.loading_label)
+            self.loading_label = None
+        
         self.scroll = ScrollView(do_scroll_x=True, do_scroll_y=True,
                                 bar_width=dp(8), bar_color=(0.3,0.3,0.5,0.8))
         self.calendar_grid = GridLayout(cols=8, spacing=1, size_hint=(1, 1))
@@ -338,6 +403,24 @@ class CalendarWidget(BoxLayout):
         self.current_week_start_str = start_str
         self.current_week_end_str = end_str
         
+        # Загружаем из БД
+        self.week_lessons = self.db.get_lessons_for_period(start_str, end_str)
+        self.lessons_by_day_cache = {}
+        for lesson in self.week_lessons:
+            day = lesson.get('date', '')
+            if day:
+                self.lessons_by_day_cache.setdefault(day, []).append(lesson)
+        self.data_loaded = True
+        
+        # Если уроков нет, пробуем загрузить из API
+        if not self.week_lessons and self.api_instances:
+            threading.Thread(target=self._load_from_api, args=(start_str, end_str), daemon=True).start()
+    
+    def _load_from_api(self, start_str, end_str):
+        """Загружает уроки из API в фоне"""
+        # Показываем индикатор загрузки
+        Clock.schedule_once(lambda dt: self.set_loading_text("Загрузка уроков из API..."), 0)
+        
         all_lessons = []
         for api in self.api_instances:
             try:
@@ -349,7 +432,12 @@ class CalendarWidget(BoxLayout):
         
         if all_lessons:
             self.db.save_lessons(all_lessons)
-        
+            Clock.schedule_once(lambda dt: self._reload_week_lessons(start_str, end_str))
+        else:
+            Clock.schedule_once(lambda dt: self.set_loading_text("Нет уроков за выбранный период"), 0)
+    
+    def _reload_week_lessons(self, start_str, end_str):
+        """Перезагружает уроки из БД"""
         self.week_lessons = self.db.get_lessons_for_period(start_str, end_str)
         self.lessons_by_day_cache = {}
         for lesson in self.week_lessons:
@@ -357,6 +445,9 @@ class CalendarWidget(BoxLayout):
             if day:
                 self.lessons_by_day_cache.setdefault(day, []).append(lesson)
         self.data_loaded = True
+        self.rebuild_table()
+        # Убираем индикатор загрузки
+        Clock.schedule_once(lambda dt: self.set_loading_text(""), 0)
         
     def rebuild_table(self):
         if self.calendar_grid:
@@ -604,18 +695,23 @@ class CalendarWidget(BoxLayout):
         return box
            
     def _on_lesson_touch(self, instance, touch):
-        # Проверяем, что касание было в пределах виджета
         if instance.collide_point(*touch.pos):
             if hasattr(instance, 'lesson_data'):
-                self.show_lesson_details(instance.lesson_data)
+                # Открываем детали урока в отдельном потоке, чтобы не блокировать UI
+                threading.Thread(target=self._show_details_thread, args=(instance.lesson_data,), daemon=True).start()
                 return True
         return False
     
+    def _show_details_thread(self, lesson):
+        """Запускает показ деталей в потоке"""
+        Clock.schedule_once(lambda dt: self.show_lesson_details(lesson), 0)
+    
     def show_lesson_details(self, lesson):
+        """Показывает детальную информацию об уроке"""
         content = BoxLayout(orientation='vertical', padding=dp(12), spacing=dp(5))
 
         # Заголовок
-        title = Label(text=f"==> Урок {lesson.get('time', '')} <==",
+        title = Label(text=f"Урок {lesson.get('time', '')}",
                     color=get_color_from_hex('#ffffff'), font_size=dp(20),
                     bold=True, size_hint_y=None, height=dp(45))
         content.add_widget(title)
@@ -655,6 +751,7 @@ class CalendarWidget(BoxLayout):
         group_id = lesson.get('group_id', '')
         topic = lesson.get('topic', '')
 
+        # Получаем имя группы из БД
         group_name = None
         if group_id and hasattr(self, 'db'):
             group_data = self.db.get_group(group_id)
@@ -716,7 +813,6 @@ class CalendarWidget(BoxLayout):
                                 font_size=dp(14), bold=True, size_hint_x=0.2, halign='left')
             group_box.add_widget(group_label)
 
-            # Используем имя из БД или ID
             display_name = group_name if group_name else f"Группа #{group_id}"
             group_url = f"{site_url}/teacher/1/group/view?id={group_id}"
             group_btn = Button(
@@ -743,10 +839,44 @@ class CalendarWidget(BoxLayout):
             sep3.bind(size=self.update_rect, pos=self.update_rect)
             info_container.add_widget(sep3)
 
-        # Получаем учеников из БД
+        # --- УЧЕНИКИ ---
+        students_label = Label(text="Ученики:", color=get_color_from_hex('#66ccff'),
+                            font_size=dp(14), bold=True, size_hint_y=None, height=dp(25),
+                            halign='left')
+        info_container.add_widget(students_label)
+
+        # Пытаемся получить учеников из разных источников
         lesson_students = []
-        if hasattr(self, 'db'):
+        
+        # 1. Сначала пробуем получить из lesson (если есть)
+        if lesson.get('students'):
+            lesson_students = lesson.get('students')
+            print(f"DEBUG: Ученики из lesson: {len(lesson_students)}")
+        
+        # 2. Если нет - пробуем из БД
+        if not lesson_students and hasattr(self, 'db'):
             lesson_students = self.db.get_lesson_students(lesson.get('id', ''))
+            print(f"DEBUG: Ученики из БД: {len(lesson_students)}")
+        
+        # 3. Если все еще нет - пробуем получить из поповера через API
+        if not lesson_students:
+            # Пробуем загрузить учеников из API
+            for api in self.api_instances:
+                if api.crm_type == lesson.get('crm_type'):
+                    try:
+                        # Получаем свежие данные урока с учениками
+                        refreshed_lessons = api.get_lessons_from_api(lesson.get('date'), lesson.get('date'))
+                        for ref_lesson in refreshed_lessons:
+                            if ref_lesson.get('id') == lesson.get('id'):
+                                if ref_lesson.get('students'):
+                                    lesson_students = ref_lesson.get('students')
+                                    print(f"DEBUG: Ученики из API: {len(lesson_students)}")
+                                    # Сохраняем в БД
+                                    api.save_lesson_relations(ref_lesson)
+                                break
+                    except Exception as e:
+                        print(f"Ошибка загрузки учеников из API: {e}")
+                    break
 
         # Функция для создания кликабельной ссылки на ученика
         def create_student_link(name_text, student_id, is_cancelled=False, is_paused=False, 
@@ -823,20 +953,11 @@ class CalendarWidget(BoxLayout):
 
             return container
 
-        # ========== ОТЛАДКА ==========
-        print(f"DEBUG: lesson_students = {lesson_students}")
-        if lesson_students:
-            for s in lesson_students:
-                print(f"DEBUG: student keys = {list(s.keys())}")
-                print(f"DEBUG: status_on_lesson = {s.get('status_on_lesson')}")
-        # ========== КОНЕЦ ОТЛАДКИ ==========
-
         if lesson_students:
             for student_data in lesson_students:
                 name_text = student_data.get('name', 'Без имени')
                 student_id = student_data.get('id', '')
                 status_on_lesson = student_data.get('status_on_lesson')
-                print(f"DEBUG: {name_text} - status_on_lesson = {status_on_lesson}")
                 balance = student_data.get('balance')
 
                 # Получаем статусы
@@ -848,32 +969,6 @@ class CalendarWidget(BoxLayout):
                 pause_info = student_data.get('pause_info', '')
                 extra_info = student_data.get('extra_info', '')
 
-                # ========== ОПРЕДЕЛЯЕМ СТАТУС ПРИСУТСТВИЯ ==========
-                presence_status = None
-                if is_absent:
-                    presence_status = "НЕ БЫЛ"
-                    presence_color = '#888899'
-                elif is_completed_flag and not is_absent:
-                    presence_status = "БЫЛ"
-                    presence_color = '#66ff66'
-                elif not is_completed_flag:
-                    presence_status = "ОЖИДАЕТСЯ"
-                    presence_color = '#66ccff'
-                
-                # Определяем статус списания
-                if status_on_lesson == 'списывать':
-                    write_off_status = "СПИСЫВАТЬ"
-                    write_off_color = '#44ff44'
-                elif status_on_lesson == 'не списывать':
-                    write_off_status = "НЕ СПИСЫВАТЬ"
-                    write_off_color = '#ff4444'
-                elif status_on_lesson == 'пауза':
-                    write_off_status = "ПАУЗА"
-                    write_off_color = '#ff9900'
-                else:
-                    write_off_status = ""
-                    write_off_color = '#888899'
-                
                 # Создаем строку ученика
                 student_box = BoxLayout(orientation='horizontal', 
                                     size_hint_y=None, height=dp(50 if status_on_lesson or balance is not None else 35), 
@@ -911,63 +1006,18 @@ class CalendarWidget(BoxLayout):
                 )
                 student_box.add_widget(name_container)
 
-                # Правая часть
+                # Правая часть - статусы
                 right_container = BoxLayout(orientation='vertical', size_hint_x=0.5, spacing=dp(2))
 
-                # Строка 1: статус присутствия
-                if presence_status:
-                    presence_lbl = Label(
-                        text=presence_status, 
-                        color=get_color_from_hex(presence_color),
-                        font_size=dp(11), 
-                        size_hint_y=None, 
-                        height=dp(20),
-                        halign='right', 
-                        valign='middle', 
-                        bold=True
-                    )
-                    right_container.add_widget(presence_lbl)
-                
-                # Строка 2: статус списания
-                if write_off_status:
-                    write_off_lbl = Label(
-                        text=write_off_status, 
-                        color=get_color_from_hex(write_off_color),
-                        font_size=dp(10), 
-                        size_hint_y=None, 
-                        height=dp(18),
-                        halign='right', 
-                        valign='middle'
-                    )
-                    right_container.add_widget(write_off_lbl)
-
-                # Остаток (третья строка)
-                if balance is not None:
-                    balance_color = '#66ff66' if balance > 0 else '#ff6666'
-                    balance_lbl = Label(
-                        text=f"Остаток: {balance} ур.",
-                        color=get_color_from_hex(balance_color),
-                        font_size=dp(10), 
-                        size_hint_y=None, 
-                        height=dp(18),
-                        halign='right', 
-                        valign='middle'
-                    )
-                    right_container.add_widget(balance_lbl)
-                # Статус на уроке (первая строка)
+                # Статус на уроке
                 status_texts = []
-
-                # Проверяем статус на уроке
                 if status_on_lesson:
                     status_texts.append(status_on_lesson.upper())
-
-                # Проверяем флаги
                 if is_absent:
                     status_texts.append("НЕ БЫЛ")
 
                 if status_texts:
                     status_display = " | ".join(status_texts)
-                    # Определяем цвет
                     if is_absent:
                         status_color = '#888899'
                     elif 'НЕ СПИСЫВАТЬ' in status_display:
@@ -984,7 +1034,7 @@ class CalendarWidget(BoxLayout):
                                     halign='right', valign='middle', bold=True)
                     right_container.add_widget(status_lbl)
 
-                # Остаток (вторая строка)
+                # Остаток
                 if balance is not None:
                     balance_color = '#66ff66' if balance > 0 else '#ff6666'
                     balance_lbl = Label(text=f"Остаток: {balance} ур.",
@@ -1011,94 +1061,11 @@ class CalendarWidget(BoxLayout):
                 student_box.add_widget(right_container)
                 info_container.add_widget(student_box)
         else:
-            # Если нет учеников в БД, используем данные из lesson
-            students = lesson.get('students', [])
-            if students:
-                for s in students:
-                    name_text = s.get('name', 'Без имени')
-                    student_id = s.get('id', '')
-                    is_cancelled = s.get('is_cancelled', False)
-                    is_paused = s.get('is_paused', False)
-                    is_absent = s.get('is_absent', False)
-                    is_rescheduled = s.get('is_rescheduled', False)
-                    is_completed_flag = is_completed
-                    balance = s.get('balance')
-                    extra_info = s.get('extra_info', '')
-                    pause_info = s.get('pause_info', '')
-                    status_on_lesson = s.get('status_on_lesson')
-
-                    student_box = BoxLayout(orientation='horizontal', 
-                                        size_hint_y=None, height=dp(50 if status_on_lesson or balance is not None else 35), 
-                                        spacing=dp(5), padding=[dp(10), dp(2), dp(10), dp(2)])
-
-                    if is_absent:
-                        bg_color = (0.2, 0.2, 0.2, 0.6)
-                    elif is_cancelled:
-                        bg_color = (0.25, 0.1, 0.1, 0.5)
-                    elif is_paused:
-                        bg_color = (0.25, 0.15, 0.05, 0.5)
-                    else:
-                        bg_color = (0.1, 0.1, 0.15, 0.5)
-
-                    with student_box.canvas.before:
-                        Color(*bg_color)
-                        student_box.rect = RoundedRectangle(size=student_box.size, 
-                                                        pos=student_box.pos, 
-                                                        radius=[(dp(4), dp(4))])
-                    student_box.bind(size=self.update_rect, pos=self.update_rect)
-
-                    name_container = create_student_link(
-                        name_text, student_id,
-                        is_cancelled=is_cancelled,
-                        is_paused=is_paused,
-                        is_absent=is_absent,
-                        is_rescheduled=is_rescheduled,
-                        is_completed=is_completed_flag
-                    )
-                    student_box.add_widget(name_container)
-
-                    right_container = BoxLayout(orientation='vertical', size_hint_x=0.5, spacing=dp(2))
-
-                    status_texts = []
-                    if status_on_lesson:
-                        status_texts.append(status_on_lesson.upper())
-                    if is_absent:
-                        status_texts.append("НЕ БЫЛ")
-
-                    if status_texts:
-                        status_display = " | ".join(status_texts)
-                        if is_absent:
-                            status_color = '#888899'
-                        elif 'НЕ СПИСЫВАТЬ' in status_display:
-                            status_color = '#ff4444'
-                        elif 'СПИСЫВАТЬ' in status_display:
-                            status_color = '#44ff44'
-                        elif 'ПАУЗА' in status_display:
-                            status_color = '#ff9900'
-                        else:
-                            status_color = '#44ff44'
-
-                        status_lbl = Label(text=status_display, color=get_color_from_hex(status_color),
-                                        font_size=dp(11), size_hint_y=None, height=dp(20),
-                                        halign='right', valign='middle', bold=True)
-                        right_container.add_widget(status_lbl)
-
-                    if balance is not None:
-                        balance_color = '#66ff66' if balance > 0 else '#ff6666'
-                        balance_lbl = Label(text=f"Остаток: {balance} ур.",
-                                        color=get_color_from_hex(balance_color),
-                                        font_size=dp(10), size_hint_y=None, height=dp(18),
-                                        halign='right', valign='middle')
-                        right_container.add_widget(balance_lbl)
-
-                    student_box.add_widget(right_container)
-                    info_container.add_widget(student_box)
-            else:
-                no_students = Label(text="Нет учеников", 
-                                color=get_color_from_hex('#888899'),
-                                font_size=dp(13), size_hint_y=None, height=dp(25),
-                                halign='left')
-                info_container.add_widget(no_students)
+            no_students = Label(text="Нет учеников", 
+                            color=get_color_from_hex('#888899'),
+                            font_size=dp(13), size_hint_y=None, height=dp(25),
+                            halign='left')
+            info_container.add_widget(no_students)
 
         info_scroll.add_widget(info_container)
         content.add_widget(info_scroll)
@@ -1155,21 +1122,7 @@ class CalendarWidget(BoxLayout):
                         background_color=(0.05, 0.05, 0.08, 1))
         close_btn.bind(on_press=self.popup.dismiss)
         self.popup.open()
-
     
-    def _open_link_on_touch(self, instance, touch, url):
-        """Обработчик клика по имени ученика для открытия ссылки"""
-        if instance.collide_point(*touch.pos):
-            webbrowser.open(url)
-            return True
-        return False
-
-    def _update_strike(self, instance, value):
-        """Обновляет позицию линии зачеркивания при изменении размера"""
-        if hasattr(instance, 'strike'):
-            instance.strike.pos = (instance.x, instance.y + instance.height/2)
-            instance.strike.size = (instance.texture_size[0] if hasattr(instance, 'texture_size') else instance.width, dp(1))
-        
     def dismiss_popup(self, instance):
         if hasattr(self, 'popup'):
             self.popup.dismiss()
@@ -1180,13 +1133,6 @@ class CalendarWidget(BoxLayout):
             import webbrowser
             webbrowser.open(url)
         
-    def zoom(self, delta):
-        new_zoom = self.zoom_level + delta
-        if 0.5 <= new_zoom <= 1.5:
-            self.zoom_level = new_zoom
-            self.zoom_label.text = f"{int(self.zoom_level*100)}%"
-            self.rebuild_table()
-            
     def update_rect(self, instance, value):
         for attr in ['rect', 'border', 'bottom_border']:
             if hasattr(instance, attr):
