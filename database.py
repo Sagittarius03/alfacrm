@@ -44,7 +44,8 @@ class Database:
                     site_url TEXT,
                     timestamp TEXT,
                     last_updated TEXT,
-                    group_id TEXT
+                    group_id TEXT,
+                    FOREIGN KEY (group_id) REFERENCES groups(id)
                 )
             ''')
             
@@ -156,12 +157,28 @@ class Database:
             
             # Добавляем новые колонки если их нет
             try:
+                cursor.execute('ALTER TABLE lessons ADD COLUMN topic TEXT')
+            except sqlite3.OperationalError:
+                pass
+                
+            try:
                 cursor.execute('ALTER TABLE lessons ADD COLUMN group_id TEXT')
             except sqlite3.OperationalError:
                 pass
                 
             try:
+                cursor.execute('ALTER TABLE lessons DROP COLUMN group_name')
+            except sqlite3.OperationalError:
+                pass
+                
+            try:
                 cursor.execute('ALTER TABLE lessons ADD COLUMN balance INTEGER DEFAULT 0')
+            except sqlite3.OperationalError:
+                pass
+            
+            # Добавляем поле для темы в таблицу lesson_students
+            try:
+                cursor.execute('ALTER TABLE lesson_students ADD COLUMN is_trial INTEGER DEFAULT 0')
             except sqlite3.OperationalError:
                 pass
     
@@ -226,6 +243,7 @@ class Database:
             return [dict(row) for row in cursor.fetchall()]
     
     def get_group_by_name(self, name, crm_type=None):
+        """Получает группу по названию"""
         with self.get_connection() as conn:
             cursor = conn.cursor()
             if crm_type:
@@ -318,16 +336,17 @@ class Database:
             for lesson in lessons:
                 cursor.execute('''
                     INSERT OR REPLACE INTO lessons 
-                    (id, date, time, client, subject, comment, status, link, 
-                     teacher, room, type, is_occupied, customer_id, crm_type, 
-                     site_url, timestamp, last_updated, group_id)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    (id, date, time, client, subject, topic, comment, status, link, 
+                    teacher, room, type, is_occupied, customer_id, crm_type, 
+                    site_url, timestamp, last_updated, group_id)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ''', (
                     lesson.get('id', ''),
                     lesson.get('date', ''),
                     lesson.get('time', ''),
                     lesson.get('client', ''),
                     lesson.get('subject', ''),
+                    lesson.get('topic', ''),
                     lesson.get('comment', ''),
                     lesson.get('status', ''),
                     lesson.get('link', ''),
@@ -511,3 +530,45 @@ class Database:
                     cookie['expiry'] = int(row['expires'])
                 cookies.append(cookie)
             return cookies
+    def get_all_groups_with_lessons(self, crm_type=None):
+        """Получает все группы с количеством уроков"""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            if crm_type:
+                cursor.execute('''
+                    SELECT g.*, COUNT(lg.lesson_id) as lesson_count
+                    FROM groups g
+                    LEFT JOIN lesson_groups lg ON g.id = lg.group_id
+                    WHERE g.crm_type = ?
+                    GROUP BY g.id
+                    ORDER BY g.name
+                ''', (crm_type,))
+            else:
+                cursor.execute('''
+                    SELECT g.*, COUNT(lg.lesson_id) as lesson_count
+                    FROM groups g
+                    LEFT JOIN lesson_groups lg ON g.id = lg.group_id
+                    GROUP BY g.id
+                    ORDER BY g.name
+                ''')
+            return [dict(row) for row in cursor.fetchall()]
+    def update_groups_cache(self):
+        """Обновляет кеш групп в БД"""
+        if not self.is_logged_in:
+            if not self.login():
+                return False
+        
+        try:
+            print("Обновление кеша групп...")
+            groups = self.get_teacher_groups()
+            
+            if groups:
+                print(f"Обновлено {len(groups)} групп в кеше")
+                return True
+            else:
+                print("Не удалось получить группы")
+                return False
+                
+        except Exception as e:
+            print(f"Ошибка обновления кеша групп: {e}")
+            return False

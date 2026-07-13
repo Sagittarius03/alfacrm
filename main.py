@@ -528,15 +528,21 @@ class CalendarWidget(BoxLayout):
         
         # Клиент - для групповых показываем название группы
         lesson_type = lesson.get('type', '')
-        group_name = lesson.get('group_name', '')
+        group_id = lesson.get('group_id', '')
         students = lesson.get('students', [])
         
         if lesson_type == 'group':
-            # Для групповых показываем название группы
+            # Для групповых - получаем имя группы из БД
+            group_name = None
+            if group_id and hasattr(self, 'db'):
+                group_data = self.db.get_group(group_id)
+                if group_data:
+                    group_name = group_data.get('name')
+            
             if group_name:
                 client_text = f"[color=66ccff]{group_name}[/color]"
             else:
-                # Ищем название группы в students
+                # Если нет в БД, пытаемся найти в students
                 group_name_from_student = None
                 for s in students:
                     if s.get('group_name'):
@@ -602,16 +608,16 @@ class CalendarWidget(BoxLayout):
                 self.show_lesson_details(instance.lesson_data)
                 return True
         return False
-            
+    
     def show_lesson_details(self, lesson):
-        content = BoxLayout(orientation='vertical', padding=dp(15), spacing=dp(10))
-        
+        content = BoxLayout(orientation='vertical', padding=dp(12), spacing=dp(5))
+
         # Заголовок
         title = Label(text=f"==> Урок {lesson.get('time', '')} <==",
                     color=get_color_from_hex('#ffffff'), font_size=dp(20),
                     bold=True, size_hint_y=None, height=dp(45))
         content.add_widget(title)
-        
+
         # Разделитель
         sep = BoxLayout(size_hint_y=None, height=dp(2))
         with sep.canvas.before:
@@ -619,7 +625,7 @@ class CalendarWidget(BoxLayout):
             sep.rect = Rectangle(size=sep.size, pos=sep.pos)
         sep.bind(size=self.update_rect, pos=self.update_rect)
         content.add_widget(sep)
-        
+
         # Словари для статусов и типов
         status_names = {
             'scheduled': '[P] Запланирован',
@@ -633,19 +639,26 @@ class CalendarWidget(BoxLayout):
             'trial': '[T] Пробный',
             'tech_support': '[S] Техподдержка'
         }
-        
+
         # Контейнер с прокруткой для информации
         info_scroll = ScrollView(size_hint_y=None, height=dp(320), bar_width=dp(6))
         info_container = BoxLayout(orientation='vertical', size_hint_y=None, spacing=dp(8))
         info_container.bind(minimum_height=info_container.setter('height'))
-        
+
         # --- Основная информация об уроке ---
         lesson_type = lesson.get('type', '')
         site_url = lesson.get('site_url', '')
         lesson_status = lesson.get('status', '')
         is_completed = lesson_status == 'completed'
-        group_name = lesson.get('group_name', '')
-        
+        group_id = lesson.get('group_id', '')
+        topic = lesson.get('topic', '')
+
+        group_name = None
+        if group_id and hasattr(self, 'db'):
+            group_data = self.db.get_group(group_id)
+            if group_data:
+                group_name = group_data.get('name')
+
         info_lines = [
             f"CRM: {lesson.get('crm_type', 'неизвестно').capitalize()}",
             f"Статус: {status_names.get(lesson.get('status', ''), 'Неизвестен')}",
@@ -656,22 +669,26 @@ class CalendarWidget(BoxLayout):
             f"Преподаватель: {lesson.get('teacher', 'Не указан')}",
             f"Кабинет: {lesson.get('room', 'Не указан')}",
         ]
-        
-        # Добавляем название группы если есть
-        if group_name and lesson_type == 'group':
+
+        # Добавляем тему если есть
+        if topic:
+            info_lines.insert(3, f"Тема: {topic}")
+
+        # Добавляем группу если есть
+        if group_name:
             info_lines.insert(2, f"Группа: {group_name}")
-        
+
         comment = lesson.get('comment', '').strip()
         if comment:
             info_lines.append(f"Комментарий: {comment}")
-        
+
         info_text = "\n".join(info_lines)
-        
+
         info_lbl = Label(text=info_text, color=get_color_from_hex('#ccccdd'),
                         font_size=dp(13), size_hint_y=None, height=dp(len(info_lines) * 25 + 10),
                         halign='left', valign='top', text_size=(dp(380), None))
         info_container.add_widget(info_lbl)
-        
+
         # --- Разделитель ---
         sep2 = BoxLayout(size_hint_y=None, height=dp(2))
         with sep2.canvas.before:
@@ -679,122 +696,61 @@ class CalendarWidget(BoxLayout):
             sep2.rect = Rectangle(size=sep2.size, pos=sep2.pos)
         sep2.bind(size=self.update_rect, pos=self.update_rect)
         info_container.add_widget(sep2)
-        
-        # --- ГРУППА (если есть) ---
-        groups = []
-        if hasattr(self, 'db'):
-            groups = self.db.get_lesson_groups(lesson.get('id', ''))
-        
-        # Если группа не найдена в БД, но есть group_id в уроке
-        if not groups and lesson.get('group_id'):
-            group_id = lesson.get('group_id')
-            if group_id and site_url:
-                group_url = f"{site_url}/teacher/1/group/view?id={group_id}"
-                group_name_display = group_name if group_name else f"Группа #{group_id}"
-                
-                group_box = BoxLayout(orientation='horizontal', 
-                                    size_hint_y=None, height=dp(35), 
-                                    spacing=dp(10), padding=[dp(10), dp(5), dp(10), dp(5)])
-                
-                with group_box.canvas.before:
-                    Color(0.1, 0.1, 0.15, 0.5)
-                    group_box.rect = RoundedRectangle(size=group_box.size, 
-                                                    pos=group_box.pos, 
-                                                    radius=[(dp(4), dp(4))])
-                group_box.bind(size=self.update_rect, pos=self.update_rect)
-                
-                group_label = Label(text="Группа:", color=get_color_from_hex('#66ccff'),
-                                font_size=dp(14), bold=True, size_hint_x=0.3, halign='left')
-                group_box.add_widget(group_label)
-                
-                group_btn = Button(
-                    text=f"[color=66ccff]{group_name_display}[/color] 🔗",
-                    markup=True,
-                    font_size=dp(13),
-                    size_hint_x=0.7,
-                    height=dp(30),
-                    background_color=(0, 0, 0, 0),
-                    color=(1, 1, 1, 1),
-                    halign='left',
-                    valign='middle'
-                )
-                group_btn.bind(on_press=lambda x, url=group_url: self.open_link(url))
-                group_box.add_widget(group_btn)
-                info_container.add_widget(group_box)
-                
-                sep3 = BoxLayout(size_hint_y=None, height=dp(2))
-                with sep3.canvas.before:
-                    Color(0.2, 0.2, 0.3, 1)
-                    sep3.rect = Rectangle(size=sep3.size, pos=sep3.pos)
-                sep3.bind(size=self.update_rect, pos=self.update_rect)
-                info_container.add_widget(sep3)
-        
-        if groups:
+
+        # --- ГРУППА (ссылка) ---
+        if group_id and site_url:
+            group_box = BoxLayout(orientation='horizontal', 
+                                size_hint_y=None, height=dp(40), 
+                                spacing=dp(10), padding=[dp(10), dp(5), dp(10), dp(5)])
+
+            with group_box.canvas.before:
+                Color(0.15, 0.25, 0.4, 0.5)
+                group_box.rect = RoundedRectangle(size=group_box.size, 
+                                                pos=group_box.pos, 
+                                                radius=[(dp(4), dp(4))])
+            group_box.bind(size=self.update_rect, pos=self.update_rect)
+
             group_label = Label(text="Группа:", color=get_color_from_hex('#66ccff'),
-                            font_size=dp(14), bold=True, size_hint_y=None, height=dp(25),
-                            halign='left')
-            info_container.add_widget(group_label)
-            
-            for group in groups:
-                group_box = BoxLayout(orientation='horizontal', 
-                                    size_hint_y=None, height=dp(35), 
-                                    spacing=dp(10), padding=[dp(10), dp(5), dp(10), dp(5)])
-                
-                with group_box.canvas.before:
-                    Color(0.1, 0.1, 0.15, 0.5)
-                    group_box.rect = RoundedRectangle(size=group_box.size, 
-                                                    pos=group_box.pos, 
-                                                    radius=[(dp(4), dp(4))])
-                group_box.bind(size=self.update_rect, pos=self.update_rect)
-                
-                group_name_display = group.get('name', 'Без названия')
-                group_id = group.get('id', '')
-                
-                if group_id and site_url:
-                    group_url = f"{site_url}/teacher/1/group/view?id={group_id}"
-                    group_btn = Button(
-                        text=f"[color=66ccff]{group_name_display}[/color] 🔗",
-                        markup=True,
-                        font_size=dp(13),
-                        size_hint_x=1,
-                        height=dp(30),
-                        background_color=(0, 0, 0, 0),
-                        color=(1, 1, 1, 1),
-                        halign='left',
-                        valign='middle'
-                    )
-                    group_btn.bind(on_press=lambda x, url=group_url: self.open_link(url))
-                    group_box.add_widget(group_btn)
-                else:
-                    group_lbl = Label(text=group_name_display, color=get_color_from_hex('#ffffff'),
-                                    font_size=dp(13), size_hint_x=1, halign='left')
-                    group_box.add_widget(group_lbl)
-                
-                info_container.add_widget(group_box)
-            
-            sep4 = BoxLayout(size_hint_y=None, height=dp(2))
-            with sep4.canvas.before:
+                                font_size=dp(14), bold=True, size_hint_x=0.2, halign='left')
+            group_box.add_widget(group_label)
+
+            # Используем имя из БД или ID
+            display_name = group_name if group_name else f"Группа #{group_id}"
+            group_url = f"{site_url}/teacher/1/group/view?id={group_id}"
+            group_btn = Button(
+                text=f"[color=66ccff]{display_name}[/color] 🔗",
+                markup=True,
+                font_size=dp(13),
+                size_hint_x=0.8,
+                height=dp(30),
+                background_color=(0, 0, 0, 0),
+                color=(1, 1, 1, 1),
+                halign='left',
+                valign='middle'
+            )
+            group_btn.bind(on_press=lambda x, url=group_url: self.open_link(url))
+            group_box.add_widget(group_btn)
+
+            info_container.add_widget(group_box)
+
+            # Разделитель
+            sep3 = BoxLayout(size_hint_y=None, height=dp(2))
+            with sep3.canvas.before:
                 Color(0.2, 0.2, 0.3, 1)
-                sep4.rect = Rectangle(size=sep4.size, pos=sep4.pos)
-            sep4.bind(size=self.update_rect, pos=self.update_rect)
-            info_container.add_widget(sep4)
-        
-        # --- УЧЕНИКИ ---
-        students_label = Label(text="Ученики:", color=get_color_from_hex('#66ccff'),
-                            font_size=dp(14), bold=True, size_hint_y=None, height=dp(25),
-                            halign='left')
-        info_container.add_widget(students_label)
-        
+                sep3.rect = Rectangle(size=sep3.size, pos=sep3.pos)
+            sep3.bind(size=self.update_rect, pos=self.update_rect)
+            info_container.add_widget(sep3)
+
         # Получаем учеников из БД
         lesson_students = []
         if hasattr(self, 'db'):
             lesson_students = self.db.get_lesson_students(lesson.get('id', ''))
-        
+
         # Функция для создания кликабельной ссылки на ученика
         def create_student_link(name_text, student_id, is_cancelled=False, is_paused=False, 
                             is_absent=False, is_rescheduled=False, is_completed=False):
             container = BoxLayout(orientation='horizontal', size_hint_x=0.5, spacing=dp(5))
-            
+
             # Определяем стиль имени
             if is_absent:
                 color = '#888899'
@@ -826,7 +782,7 @@ class CalendarWidget(BoxLayout):
                 style_open = ''
                 style_close = ''
                 status_text = ''
-            
+
             if student_id and site_url:
                 url = f"{site_url}/teacher/1/customer/view?id={student_id}"
                 name_btn = Button(
@@ -844,7 +800,7 @@ class CalendarWidget(BoxLayout):
                 )
                 name_btn.bind(on_press=lambda x, u=url: self.open_link(u))
                 container.add_widget(name_btn)
-                
+
                 link_icon = Label(text="🔗", color=get_color_from_hex('#444466'), 
                                 font_size=dp(12), size_hint_x=None, width=dp(25),
                                 halign='left', valign='middle')
@@ -862,16 +818,16 @@ class CalendarWidget(BoxLayout):
                     text_size=(dp(280), None)
                 )
                 container.add_widget(name_lbl)
-            
+
             return container
-        
+
         if lesson_students:
             for student_data in lesson_students:
                 name_text = student_data.get('name', 'Без имени')
                 student_id = student_data.get('id', '')
                 status_on_lesson = student_data.get('student_status_on_lesson')
                 balance = student_data.get('balance')
-                
+
                 # Получаем статусы
                 is_cancelled = bool(student_data.get('is_cancelled', 0))
                 is_paused = bool(student_data.get('is_paused', 0))
@@ -880,12 +836,12 @@ class CalendarWidget(BoxLayout):
                 is_completed_flag = bool(student_data.get('is_completed', 0))
                 pause_info = student_data.get('pause_info', '')
                 extra_info = student_data.get('extra_info', '')
-                
+
                 # Создаем строку ученика
                 student_box = BoxLayout(orientation='horizontal', 
-                                    size_hint_y=None, height=dp(45 if status_on_lesson or balance is not None else 35), 
+                                    size_hint_y=None, height=dp(50 if status_on_lesson or balance is not None else 35), 
                                     spacing=dp(5), padding=[dp(10), dp(2), dp(10), dp(2)])
-                
+
                 # Определяем цвет фона
                 if is_absent:
                     bg_color = (0.2, 0.2, 0.2, 0.6)
@@ -899,14 +855,14 @@ class CalendarWidget(BoxLayout):
                     bg_color = (0.1, 0.3, 0.1, 0.5)
                 else:
                     bg_color = (0.1, 0.1, 0.15, 0.5)
-                
+
                 with student_box.canvas.before:
                     Color(*bg_color)
                     student_box.rect = RoundedRectangle(size=student_box.size, 
                                                     pos=student_box.pos, 
                                                     radius=[(dp(4), dp(4))])
                 student_box.bind(size=self.update_rect, pos=self.update_rect)
-                
+
                 # Имя ученика - кликабельное
                 name_container = create_student_link(
                     name_text, student_id,
@@ -917,40 +873,40 @@ class CalendarWidget(BoxLayout):
                     is_completed=is_completed_flag
                 )
                 student_box.add_widget(name_container)
-                
+
                 # Правая часть
                 right_container = BoxLayout(orientation='vertical', size_hint_x=0.5, spacing=dp(2))
-                
+
                 # Статус на уроке (первая строка)
                 status_texts = []
-                
+
                 # Проверяем статус на уроке
                 if status_on_lesson:
                     status_texts.append(status_on_lesson.upper())
-                
+
                 # Проверяем флаги
                 if is_absent:
                     status_texts.append("НЕ БЫЛ")
-                
+
                 if status_texts:
                     status_display = " | ".join(status_texts)
                     # Определяем цвет
                     if is_absent:
                         status_color = '#888899'
-                    elif 'НЕ СПИСЫВАТЬ' in status_display and is_completed_flag:
+                    elif 'НЕ СПИСЫВАТЬ' in status_display:
                         status_color = '#ff4444'
-                    elif 'СПИСЫВАТЬ' in status_display and is_completed_flag:
-                        status_color = '#ff4444'
+                    elif 'СПИСЫВАТЬ' in status_display:
+                        status_color = '#44ff44'
                     elif 'ПАУЗА' in status_display:
                         status_color = '#ff9900'
                     else:
                         status_color = '#44ff44'
-                    
+
                     status_lbl = Label(text=status_display, color=get_color_from_hex(status_color),
                                     font_size=dp(11), size_hint_y=None, height=dp(20),
                                     halign='right', valign='middle', bold=True)
                     right_container.add_widget(status_lbl)
-                
+
                 # Остаток (вторая строка)
                 if balance is not None:
                     balance_color = '#66ff66' if balance > 0 else '#ff6666'
@@ -959,7 +915,7 @@ class CalendarWidget(BoxLayout):
                                     font_size=dp(10), size_hint_y=None, height=dp(18),
                                     halign='right', valign='middle')
                     right_container.add_widget(balance_lbl)
-                
+
                 # Дополнительная информация
                 details = []
                 if pause_info:
@@ -967,18 +923,18 @@ class CalendarWidget(BoxLayout):
                 if extra_info:
                     if 'ост' not in extra_info.lower() or not balance:
                         details.append(extra_info)
-                
+
                 if details:
                     details_lbl = Label(text=", ".join(details), 
                                     color=get_color_from_hex('#888899'),
                                     font_size=dp(9), size_hint_y=None, height=dp(16),
                                     halign='right', valign='middle')
                     right_container.add_widget(details_lbl)
-                
+
                 student_box.add_widget(right_container)
                 info_container.add_widget(student_box)
         else:
-            # Если нет учеников в БД, используем старый метод
+            # Если нет учеников в БД, используем данные из lesson
             students = lesson.get('students', [])
             if students:
                 for s in students:
@@ -992,11 +948,12 @@ class CalendarWidget(BoxLayout):
                     balance = s.get('balance')
                     extra_info = s.get('extra_info', '')
                     pause_info = s.get('pause_info', '')
-                    
+                    status_on_lesson = s.get('status_on_lesson')
+
                     student_box = BoxLayout(orientation='horizontal', 
-                                        size_hint_y=None, height=dp(40), 
+                                        size_hint_y=None, height=dp(50 if status_on_lesson or balance is not None else 35), 
                                         spacing=dp(5), padding=[dp(10), dp(2), dp(10), dp(2)])
-                    
+
                     if is_absent:
                         bg_color = (0.2, 0.2, 0.2, 0.6)
                     elif is_cancelled:
@@ -1005,14 +962,14 @@ class CalendarWidget(BoxLayout):
                         bg_color = (0.25, 0.15, 0.05, 0.5)
                     else:
                         bg_color = (0.1, 0.1, 0.15, 0.5)
-                    
+
                     with student_box.canvas.before:
                         Color(*bg_color)
                         student_box.rect = RoundedRectangle(size=student_box.size, 
                                                         pos=student_box.pos, 
                                                         radius=[(dp(4), dp(4))])
                     student_box.bind(size=self.update_rect, pos=self.update_rect)
-                    
+
                     name_container = create_student_link(
                         name_text, student_id,
                         is_cancelled=is_cancelled,
@@ -1022,15 +979,33 @@ class CalendarWidget(BoxLayout):
                         is_completed=is_completed_flag
                     )
                     student_box.add_widget(name_container)
-                    
+
                     right_container = BoxLayout(orientation='vertical', size_hint_x=0.5, spacing=dp(2))
-                    
+
+                    status_texts = []
+                    if status_on_lesson:
+                        status_texts.append(status_on_lesson.upper())
                     if is_absent:
-                        status_lbl = Label(text="НЕ БЫЛ", color=(0.5, 0.5, 0.5, 1),
+                        status_texts.append("НЕ БЫЛ")
+
+                    if status_texts:
+                        status_display = " | ".join(status_texts)
+                        if is_absent:
+                            status_color = '#888899'
+                        elif 'НЕ СПИСЫВАТЬ' in status_display:
+                            status_color = '#ff4444'
+                        elif 'СПИСЫВАТЬ' in status_display:
+                            status_color = '#44ff44'
+                        elif 'ПАУЗА' in status_display:
+                            status_color = '#ff9900'
+                        else:
+                            status_color = '#44ff44'
+
+                        status_lbl = Label(text=status_display, color=get_color_from_hex(status_color),
                                         font_size=dp(11), size_hint_y=None, height=dp(20),
                                         halign='right', valign='middle', bold=True)
                         right_container.add_widget(status_lbl)
-                    
+
                     if balance is not None:
                         balance_color = '#66ff66' if balance > 0 else '#ff6666'
                         balance_lbl = Label(text=f"Остаток: {balance} ур.",
@@ -1038,7 +1013,7 @@ class CalendarWidget(BoxLayout):
                                         font_size=dp(10), size_hint_y=None, height=dp(18),
                                         halign='right', valign='middle')
                         right_container.add_widget(balance_lbl)
-                    
+
                     student_box.add_widget(right_container)
                     info_container.add_widget(student_box)
             else:
@@ -1047,62 +1022,49 @@ class CalendarWidget(BoxLayout):
                                 font_size=dp(13), size_hint_y=None, height=dp(25),
                                 halign='left')
                 info_container.add_widget(no_students)
-        
+
         info_scroll.add_widget(info_container)
         content.add_widget(info_scroll)
-        
+
         # --- КНОПКИ ---
         btn_box = BoxLayout(size_hint_y=None, height=dp(50), spacing=dp(10))
-        
+
         # Формируем URL для кнопки "Открыть в браузере"
         lesson_url = None
-        
+
         # 1. Для групповых уроков - ссылка на группу
-        if lesson_type == 'group':
-            # Сначала ищем в groups из БД
-            if groups and groups[0].get('id'):
-                group_id = groups[0].get('id')
-                if group_id and site_url:
-                    lesson_url = f"{site_url}/teacher/1/group/view?id={group_id}"
-            # Если не нашли, используем group_id из урока
-            elif lesson.get('group_id'):
-                group_id = lesson.get('group_id')
-                if group_id and site_url:
-                    lesson_url = f"{site_url}/teacher/1/group/view?id={group_id}"
-        
-        # 2. Если не нашли группу или это не групповой урок - ссылка на клиента
+        if group_id and site_url:
+            lesson_url = f"{site_url}/teacher/1/group/view?id={group_id}"
+
+        # 2. Если не нашли группу - ссылка на клиента
         if not lesson_url:
             customer_id = lesson.get('customer_id')
-            
+
             # Ищем ID клиента из списка студентов
             if not customer_id and lesson_students:
                 for s in lesson_students:
                     if s.get('id'):
                         customer_id = s.get('id')
                         break
-            
+
             if customer_id and site_url:
                 lesson_url = f"{site_url}/teacher/1/customer/view?id={customer_id}"
             elif lesson.get('link'):
-                # Проверяем, не ссылка ли это на группу
-                if 'group/view' in lesson.get('link', ''):
-                    lesson_url = lesson.get('link')
-                else:
-                    lesson_url = lesson.get('link')
+                lesson_url = lesson.get('link')
             elif lesson.get('id') and site_url:
                 lesson_url = f"{site_url}/teacher/1/lesson/view?id={lesson.get('id')}"
-        
+
         if lesson_url:
             if not lesson_url.startswith('http'):
                 lesson_url = 'https://' + lesson_url.lstrip('/')
-            
+
             link_btn = Button(text="Открыть в браузере",
                             background_color=(0.15, 0.4, 0.8, 1), 
                             color=(1, 1, 1, 1),
                             font_size=dp(13), bold=True)
             link_btn.bind(on_press=lambda x: self.open_link(lesson_url))
             btn_box.add_widget(link_btn)
-        
+
         close_btn = Button(text="Закрыть",
                         background_color=(0.2, 0.2, 0.3, 1), 
                         color=(1, 1, 1, 1),
@@ -1110,12 +1072,13 @@ class CalendarWidget(BoxLayout):
         close_btn.bind(on_press=self.dismiss_popup)
         btn_box.add_widget(close_btn)
         content.add_widget(btn_box)
-        
+
         # --- Попап ---
         self.popup = Popup(title='', content=content, size_hint=(0.8, 0.75),
                         background_color=(0.05, 0.05, 0.08, 1))
         close_btn.bind(on_press=self.popup.dismiss)
         self.popup.open()
+
     
     def _open_link_on_touch(self, instance, touch, url):
         """Обработчик клика по имени ученика для открытия ссылки"""
