@@ -881,3 +881,20 @@ class SyncDatabase:
     
     def get_all_groups_with_lessons(self, crm_type=None):
         return self._run_async(self._async_db.get_all_groups(crm_type))
+    
+    # Добавить в класс Database (в асинхронную часть)
+
+    async def delete_group(self, group_id: str):
+        """Удаляет группу по ID"""
+        conn = await self.get_connection()
+        try:
+            await conn.execute('DELETE FROM groups WHERE id = ?', (group_id,))
+            await conn.commit()
+            print(f"Удалена группа: {group_id}")
+        finally:
+            await conn.close()
+
+    # Добавить в класс SyncDatabase (в синхронную обертку)
+
+    def delete_group(self, group_id):
+        return self._run_async(self._async_db.delete_group(group_id))

@@ -27,7 +27,7 @@ import os
 import webbrowser
 import asyncio
 
-from old_alfacrm_api import AlfaCRMApi
+from alfacrm_api_async import AlfaCRMApiAsync
 from database import SyncDatabase as Database
 from notification_manager import NotificationManager
 from scheduler import Scheduler
@@ -57,7 +57,7 @@ class MainApp(App):
     def load_profiles(self):
         profiles = self.config_manager.get_profiles()
         for profile in profiles:
-            api = AlfaCRMApi(profile, crm_type=profile.get('crm_type', 'rts'))
+            api = AlfaCRMApiAsync(profile, crm_type=profile.get('crm_type', 'rts'))
             api.db = self.db
             self.api_instances.append(api)
         if not self.api_instances:
@@ -67,7 +67,7 @@ class MainApp(App):
                 'password': '',
                 'crm_type': 'rts'
             }
-            api = AlfaCRMApi(default_profile, crm_type='rts')
+            api = AlfaCRMApiAsync(default_profile, crm_type='rts')
             api.db = self.db
             self.api_instances.append(api)
         
@@ -163,15 +163,7 @@ class MainApp(App):
             threading.Thread(target=self.test_login, daemon=True).start()
             
     def test_login(self):
-        threads = []
         results = {}
-        def login_api(api):
-            try:
-                success = api.login()
-                results[api.crm_type] = success
-            except Exception as e:
-                print(f"Ошибка входа для {api.crm_type}: {e}")
-                results[api.crm_type] = False
         for api in self.api_instances:
             crm = api.crm_type
             if not api.config.get('username'):
@@ -179,7 +171,10 @@ class MainApp(App):
                 continue
             try:
                 print(f"Попытка входа для {crm}...")
-                success = api.login()
+                if hasattr(api, 'login_sync'):
+                    success = api.login_sync()
+                else:
+                    success = api.login()
                 results[crm] = success
                 if success:
                     print(f"{crm}: Успешно")
@@ -188,11 +183,9 @@ class MainApp(App):
             except Exception as e:
                 print(f"Ошибка входа для {crm}: {e}")
                 results[crm] = False
-        for t in threads:
-            t.join()
+        
         if all(results.values()):
             Clock.schedule_once(lambda dt: self.update_status('Подключено', '#44ff44'))
-            # Загружаем уроки в фоне асинхронно
             threading.Thread(target=self.async_load_lessons, daemon=True).start()
         elif any(results.values()):
             Clock.schedule_once(lambda dt: self.update_status('Частичное подключение', '#ffaa44'))
@@ -201,60 +194,113 @@ class MainApp(App):
         for crm, status in results.items():
             print(f"{crm}: {'Успешно' if status else 'Ошибка'}")
 
+    # В классе MainApp заменить метод async_load_lessons и _async_load_lessons:
+
     def async_load_lessons(self):
-        """Асинхронная загрузка уроков"""
+        """Асинхронная загрузка уроков - СНАЧАЛА из API, потом в БД"""
         Clock.schedule_once(lambda dt: self.update_status('Загрузка уроков...', '#44aaff'))
         
-        # Запускаем асинхронную загрузку
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
+        # Показываем индикатор загрузки в календаре
+        Clock.schedule_once(lambda dt: self.calendar_widget.set_loading(True), 0)
+        Clock.schedule_once(lambda dt: self.calendar_widget.set_loading_text("Загрузка уроков из CRM..."), 0)
+        
+        # Запускаем загрузку в потоке
+        threading.Thread(target=self._sync_load_lessons, daemon=True).start()
+
+    def _sync_load_lessons(self):
+        """Синхронная загрузка уроков в потоке"""
         try:
-            loop.run_until_complete(self._async_load_lessons())
-        finally:
-            loop.close()
-        
-        # Обновляем UI
-        Clock.schedule_once(lambda dt: self.update_status('Подключено', '#44ff44'))
-    
-    async def _async_load_lessons(self):
-        """Асинхронная загрузка уроков из всех CRM"""
-        week_start = datetime.now() - timedelta(days=datetime.now().weekday())
-        week_end = week_start + timedelta(days=6)
-        start_str = week_start.strftime("%Y-%m-%d")
-        end_str = week_end.strftime("%Y-%m-%d")
-        
-        all_lessons = []
-        tasks = []
-        
-        # Создаем задачи для каждого API
-        for api in self.api_instances:
-            if hasattr(api, 'get_lessons_from_api_async'):
-                tasks.append(api.get_lessons_from_api(self.db, start_str, end_str))
-            else:
-                # Синхронный метод в потоке
-                def sync_get(api=api):
-                    return api.get_lessons_from_api(start_str, end_str)
-                tasks.append(asyncio.to_thread(sync_get))
-        
-        # Выполняем все задачи параллельно
-        if tasks:
-            results = await asyncio.gather(*tasks, return_exceptions=True)
-            for result in results:
-                if isinstance(result, list) and result:
-                    all_lessons.extend(result)
-                elif isinstance(result, Exception):
-                    print(f"Ошибка загрузки: {result}")
-        
-        # Сохраняем в БД
-        if all_lessons:
-            self.db.save_lessons(all_lessons)
-            Clock.schedule_once(lambda dt: self.update_lesson_count(len(all_lessons)))
-        
-        # Обновляем календарь
-        Clock.schedule_once(lambda dt: self.calendar_widget.load_week_lessons(), 0.5)
-        Clock.schedule_once(lambda dt: self.calendar_widget.rebuild_table(), 1)
-        # Показываем что загрузка завершена
-        Clock.schedule_once(lambda dt: self.calendar_widget.set_loading(False), 1)
+            week_start = datetime.now() - timedelta(days=datetime.now().weekday())
+            week_end = week_start + timedelta(days=6)
+            start_str = week_start.strftime("%Y-%m-%d")
+            end_str = week_end.strftime("%Y-%m-%d")
+            
+            all_lessons = []
+            
+            # Загружаем уроки из каждого API синхронно
+            for api in self.api_instances:
+                try:
+                    # Убеждаемся что залогинены - используем синхронный login()
+                    if not api.is_logged_in:
+                        # login() без db аргумента - синхронная версия
+                        if hasattr(api, 'login_sync'):
+                            api.login_sync()
+                        else:
+                            api.login()
+                    
+                    # Получаем группы синхронно
+                    if hasattr(api, 'get_teacher_groups_sync'):
+                        api.get_teacher_groups_sync()
+                    
+                    # Получаем уроки - используем СИНХРОННУЮ версию
+                    if hasattr(api, 'get_lessons_from_api_sync'):
+                        lessons = api.get_lessons_from_api_sync(start_str, end_str)
+                    else:
+                        # Если нет синхронной версии, создаем новую асинхронную задачу и ждем
+                        import asyncio
+                        loop = asyncio.new_event_loop()
+                        asyncio.set_event_loop(loop)
+                        lessons = loop.run_until_complete(api.get_lessons_from_api(self.db, start_str, end_str))
+                        loop.close()
+                    
+                    if lessons:
+                        all_lessons.extend(lessons)
+                        print(f"Загружено {len(lessons)} уроков из {api.crm_type}")
+                except Exception as e:
+                    print(f"Ошибка загрузки из {api.crm_type}: {e}")
+                    import traceback
+                    traceback.print_exc()
+            
+            # Сохраняем в БД
+            if all_lessons:
+                # Сохраняем связи
+                for api in self.api_instances:
+                    for lesson in all_lessons:
+                        if lesson.get('crm_type') == api.crm_type:
+                            if hasattr(api, 'save_lesson_relations_sync'):
+                                api.save_lesson_relations_sync(lesson, lesson.get('students', []), lesson.get('group_id'))
+                            else:
+                                # Синхронное сохранение через db
+                                self.db.save_lesson(lesson)
+                                for student in lesson.get('students', []):
+                                    if student.get('id'):
+                                        self.db.save_student(
+                                            student_id=student.get('id'),
+                                            name=student.get('name', ''),
+                                            status='active',
+                                            balance=student.get('balance'),
+                                            site_url=lesson.get('site_url'),
+                                            crm_type=lesson.get('crm_type')
+                                        )
+                                        self.db.save_lesson_student(
+                                            lesson_id=lesson.get('id'),
+                                            student_id=student.get('id'),
+                                            status_on_lesson=student.get('status_on_lesson'),
+                                            is_cancelled=student.get('is_cancelled', False),
+                                            is_paused=student.get('is_paused', False),
+                                            is_absent=student.get('is_absent', False),
+                                            is_rescheduled=student.get('is_rescheduled', False),
+                                            is_completed=lesson.get('status') == 'completed',
+                                            pause_info=student.get('pause_info'),
+                                            extra_info=student.get('extra_info')
+                                        )
+                
+                # Сохраняем уроки
+                self.db.save_lessons(all_lessons)
+                Clock.schedule_once(lambda dt: self.update_lesson_count(len(all_lessons)))
+            
+            # Обновляем календарь
+            Clock.schedule_once(lambda dt: self.calendar_widget.load_week_lessons(), 0.5)
+            Clock.schedule_once(lambda dt: self.calendar_widget.rebuild_table(), 1)
+            Clock.schedule_once(lambda dt: self.calendar_widget.set_loading(False), 1)
+            Clock.schedule_once(lambda dt: self.update_status('Подключено', '#44ff44'), 1)
+            
+        except Exception as e:
+            print(f"Ошибка загрузки: {e}")
+            import traceback
+            traceback.print_exc()
+            Clock.schedule_once(lambda dt: self.calendar_widget.set_loading(False), 1)
+            Clock.schedule_once(lambda dt: self.update_status('Ошибка загрузки', '#ff4444'), 1)
             
     def update_status(self, text, color):
         self.status_text.text = text
@@ -403,7 +449,7 @@ class CalendarWidget(BoxLayout):
         self.current_week_start_str = start_str
         self.current_week_end_str = end_str
         
-        # Загружаем из БД
+        # Загружаем из БД (синхронно)
         self.week_lessons = self.db.get_lessons_for_period(start_str, end_str)
         self.lessons_by_day_cache = {}
         for lesson in self.week_lessons:
@@ -412,19 +458,44 @@ class CalendarWidget(BoxLayout):
                 self.lessons_by_day_cache.setdefault(day, []).append(lesson)
         self.data_loaded = True
         
-        # Если уроков нет, пробуем загрузить из API
+        # Если уроков нет в БД, но есть API - загружаем
         if not self.week_lessons and self.api_instances:
+            Clock.schedule_once(lambda dt: self.set_loading_text("Загрузка из CRM..."), 0)
             threading.Thread(target=self._load_from_api, args=(start_str, end_str), daemon=True).start()
+
+    def _load_from_api_background(self, start_str, end_str):
+        """Загружает уроки из API в фоне для обновления"""
+        try:
+            for api in self.api_instances:
+                if not api.is_logged_in:
+                    api.login()
+            
+            all_lessons = []
+            for api in self.api_instances:
+                try:
+                    lessons = api.get_lessons_from_api(start_str, end_str)
+                    if lessons:
+                        all_lessons.extend(lessons)
+                except Exception as e:
+                    print(f"Ошибка загрузки из {api.crm_type}: {e}")
+            
+            if all_lessons:
+                self.db.save_lessons(all_lessons)
+                Clock.schedule_once(lambda dt: self._reload_week_lessons(start_str, end_str))
+        except Exception as e:
+            print(f"Ошибка фоновой загрузки: {e}")
     
     def _load_from_api(self, start_str, end_str):
         """Загружает уроки из API в фоне"""
-        # Показываем индикатор загрузки
         Clock.schedule_once(lambda dt: self.set_loading_text("Загрузка уроков из API..."), 0)
         
         all_lessons = []
         for api in self.api_instances:
             try:
-                lessons = api.get_lessons_from_api(start_str, end_str)
+                if hasattr(api, 'get_lessons_from_api_sync'):
+                    lessons = api.get_lessons_from_api_sync(start_str, end_str)
+                else:
+                    lessons = api.get_lessons_from_api(start_str, end_str)
                 if lessons:
                     all_lessons.extend(lessons)
             except Exception as e:
